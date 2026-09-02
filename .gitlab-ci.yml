@@ -1,0 +1,30 @@
+image: python:3.12-slim
+
+stages:
+  - lint
+  - validate
+
+cache:
+  paths:
+    - .cache/pip
+
+variables:
+  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+
+lint:
+  stage: lint
+  before_script:
+    - python -m pip install --upgrade pip
+    - pip install -r requirements.txt
+  script:
+    - ruff check .
+
+validate:
+  stage: validate
+  before_script:
+    - python -m pip install --upgrade pip
+    - pip install -r requirements.txt
+  script:
+    - python -m compileall -q app.py signal_utils.py tests
+    - pytest -q

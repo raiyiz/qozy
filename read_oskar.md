@@ -11,3 +11,4 @@ When Oskar presented his result, the room fell quiet. Then a student raised her 
 Oskar smiled. “I stopped trying to make the universe speak loudly.”
 
 From then on, his students learned that physics was not only the search for grand answers. It was also the patience to notice a whisper—and the courage to follow it.
+
