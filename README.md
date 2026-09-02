@@ -86,3 +86,18 @@ test:
 	- python -m compileall -q app.py
 	- pytest -q
 ```
+
+## UV install
+
+This project is also configured for `uv`:
+
+```bash
+uv sync --extra dev
+uv run spdc-gui
+```
+
+For the test suite:
+
+```bash
+uv run pytest -q
+```

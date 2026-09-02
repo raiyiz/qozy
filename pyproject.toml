@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "qozy-spdc-gui"
+version = "0.1.0"
+description = "SPDC experiment GUI with PyQt and VisPy plotting"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  "numpy>=1.26,<2",
+  "vispy>=0.14",
+  "PyQt5>=5.15",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+  "ruff>=0.6.0",
+]
+
+[project.scripts]
+spdc-gui = "app:main"
+
+[tool.setuptools]
+py-modules = ["app", "signal_utils"]
+packages = ["spdc_app"]
+
+[tool.uv]
+package = true
