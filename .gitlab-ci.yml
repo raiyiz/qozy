@@ -25,7 +25,14 @@ test:
   stage: check
   before_script:
     - apt-get update -qq
-    - apt-get install -y -qq --no-install-recommends libegl1 libglib2.0-0 libxkbcommon0 libxcb-cursor0 libgl1
+    - apt-get install -y -qq --no-install-recommends
+        libegl1
+        libfontconfig1
+        libxkbcommon0
+        libxcb-cursor0
+        libgl1
+        libglib2.0-0
+        > /dev/null
     - pip install --upgrade pip -q
     - pip install uv -q
     - uv sync --extra dev
