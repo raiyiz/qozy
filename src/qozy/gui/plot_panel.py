@@ -31,19 +31,11 @@ class PlotPanel(QWidget):
 
         self.view = self.canvas.central_widget.add_view()
         self.view.camera = "panzoom"
-        self.grid = visuals.GridLines(
-            parent=self.view.scene, color=(0.30, 0.38, 0.52, 0.8)
-        )
+        self.grid = visuals.GridLines(parent=self.view.scene, color=(0.30, 0.38, 0.52, 0.8))
 
-        self.alice_line = visuals.Line(
-            parent=self.view.scene, color=(0.93, 0.32, 0.30, 1.0), width=2.5
-        )
-        self.bob_line = visuals.Line(
-            parent=self.view.scene, color=(0.26, 0.72, 0.98, 1.0), width=2.5
-        )
-        self.corr_line = visuals.Line(
-            parent=self.view.scene, color=(0.74, 0.82, 0.26, 1.0), width=2.0
-        )
+        self.alice_line = visuals.Line(parent=self.view.scene, color=(0.93, 0.32, 0.30, 1.0), width=2.5)
+        self.bob_line = visuals.Line(parent=self.view.scene, color=(0.26, 0.72, 0.98, 1.0), width=2.5)
+        self.corr_line = visuals.Line(parent=self.view.scene, color=(0.74, 0.82, 0.26, 1.0), width=2.0)
 
     def set_traces(
         self,
@@ -54,9 +46,7 @@ class PlotPanel(QWidget):
         y_range: tuple[float, float] | None = None,
     ) -> None:
         zeros = np.zeros_like(t)
-        self.alice_line.set_data(
-            np.column_stack((t, alice if alice is not None else zeros))
-        )
+        self.alice_line.set_data(np.column_stack((t, alice if alice is not None else zeros)))
         self.bob_line.set_data(np.column_stack((t, bob if bob is not None else zeros)))
         self.corr_line.set_data(np.column_stack((t, corr if corr is not None else zeros)))
 

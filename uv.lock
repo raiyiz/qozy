@@ -286,8 +286,6 @@ source = { editable = "." }
 dependencies = [
     { name = "numpy" },
     { name = "pyqt6" },
-    { name = "pytest" },
-    { name = "ruff" },
     { name = "vispy" },
 ]
 
@@ -302,10 +300,8 @@ dev = [
 requires-dist = [
     { name = "numpy", specifier = ">=1.26,<2" },
     { name = "pyqt6", specifier = ">=6.6" },
-    { name = "pytest", specifier = ">=9.1.1" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "pytest-qt", marker = "extra == 'dev'", specifier = ">=4.4" },
-    { name = "ruff", specifier = ">=0.16.6" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6.0" },
     { name = "vispy", specifier = ">=0.14" },
 ]

@@ -18,7 +18,7 @@ DEFAULT_BASE_DIR = Path.home() / "qozy_data"
 
 def day_folder(base_dir: Path | None = None, when: datetime | None = None) -> Path:
     base_dir = base_dir or DEFAULT_BASE_DIR
-    when = when or datetime.now()
+    when = when or datetime.now()  # noqa: DTZ005 - folder structure is by local calendar date, not UTC
     folder = base_dir / str(when.year) / f"{when.month:02d}" / f"{when.day:02d}"
     folder.mkdir(parents=True, exist_ok=True)
     return folder

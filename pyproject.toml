@@ -12,8 +12,6 @@ dependencies = [
   "numpy>=1.26,<2",
   "vispy>=0.14",
   "PyQt6>=6.6",
-  "pytest>=9.1.1",
-  "ruff>=0.16.6",
 ]
 
 [project.optional-dependencies]
@@ -36,10 +34,13 @@ where = ["src"]
 [tool.setuptools.package-data]
 qozy = ["gui/icons/*"]
 
+[tool.uv]
+package = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra -q"
 
 [tool.ruff]
-line-length = 90
+line-length = 100
 src = ["src", "tests"]

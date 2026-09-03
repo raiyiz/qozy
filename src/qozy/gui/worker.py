@@ -46,7 +46,8 @@ class AcquisitionWorker(QObject):
     def _poll(self) -> None:
         try:
             state: MeasurementState = self.controller.poll()
-        except Exception as exc:  # surface adapter errors instead of crashing the thread
+        except Exception as exc:  # noqa: BLE001 - any adapter/hardware failure should
+            # surface in the UI via `error`, not crash the polling thread silently
             self.error.emit(str(exc))
             return
         self.data_ready.emit(state)

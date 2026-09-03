@@ -53,5 +53,6 @@ class MeasurementState:
     counter_data: object | None = None
     corr_data: object | None = None
     countrate_data: object | None = None
+    coincidence_matrix: object | None = None
     bell_e: object | None = None
     bell_s: object | None = None

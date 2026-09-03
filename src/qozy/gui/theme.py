@@ -1,26 +1,15 @@
 from PyQt6.QtGui import QFont
 
 LIGHT = {
-    "bg": "#F6F7F9",
-    "surface": "#FFFFFF",
-    "surface_alt": "#F1F3F5",
-    "border": "#E4E7EC",
-    "text": "#101828",
-    "muted": "#667085",
-    "primary": "#2563EB",
-    "primary_hover": "#1D4ED8",
+    "bg":"#F6F7F9","surface":"#FFFFFF","surface_alt":"#F1F3F5",
+    "border":"#E4E7EC","text":"#101828","muted":"#667085",
+    "primary":"#2563EB","primary_hover":"#1D4ED8"
 }
 DARK = {
-    "bg": "#0B0F14",
-    "surface": "#121820",
-    "surface_alt": "#1A222C",
-    "border": "#283442",
-    "text": "#F2F4F7",
-    "muted": "#98A2B3",
-    "primary": "#4F8CFF",
-    "primary_hover": "#3D7AF0",
+    "bg":"#0B0F14","surface":"#121820","surface_alt":"#1A222C",
+    "border":"#283442","text":"#F2F4F7","muted":"#98A2B3",
+    "primary":"#4F8CFF","primary_hover":"#3D7AF0"
 }
-
 
 def stylesheet(c):
     return """
@@ -69,7 +58,6 @@ def stylesheet(c):
         border: none; font-weight: 600;
     }}
     """.format(**c)
-
 
 def apply_theme(app, mode):
     app.setStyleSheet(stylesheet(DARK if mode == "dark" else LIGHT))

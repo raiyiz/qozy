@@ -42,16 +42,11 @@ class SimulatorAdapter:
         pass
 
     def setup_counters(
-        self,
-        channel_list: list[int],
-        counts_bin_width_ms: float,
-        counts_time_frame_s: float,
+        self, channel_list: list[int], counts_bin_width_ms: float, counts_time_frame_s: float
     ) -> None:
         self._counter_channels = list(channel_list)
         self._counts_bin_width_ms = counts_bin_width_ms
-        self._counts_bin_number = int(
-            np.ceil(counts_time_frame_s * 1e3 / counts_bin_width_ms)
-        )
+        self._counts_bin_number = int(np.ceil(counts_time_frame_s * 1e3 / counts_bin_width_ms))
 
     def setup_countrates(self, channels: list[int]) -> None:
         self._countrate_channels = list(channels)
@@ -100,7 +95,7 @@ class SimulatorAdapter:
         index = (np.arange(n_bins) - n_bins / 2) * self._corr_bin_width_ns
         results = []
         for i, _b in enumerate(self._corr_b_channels):
-            envelope = 200 * np.exp(-(((index) / (30 + 5 * i)) ** 2))
+            envelope = 200 * np.exp(-((index) / (30 + 5 * i)) ** 2)
             envelope += self._rng.normal(0, 8, size=n_bins)
             results.append(np.vstack((index, np.clip(envelope, 0, None))))
         return results
@@ -113,3 +108,23 @@ class SimulatorAdapter:
     def get_total_counts(self) -> np.ndarray:
         n = max(len(self._countrate_channels), 1)
         return (1000 + 100 * np.arange(n)) * 100
+
+    def get_coincidence_matrix(self) -> np.ndarray:
+        """Demo-only extra, not part of ``MeasurementAdapter``: a synthetic
+        4x4 coincidence-count matrix (V/H/D/A x four Bob angles) with a
+        built-in CHSH violation, so the Bell summary on the Counts page has
+        something non-trivial to show without hardware.
+
+        A real adapter would build this from an actual polarization-angle
+        scan (see plan.md Phase 5) rather than a single live readout — this
+        is a stand-in for that, not a claim about how the real measurement
+        works.
+        """
+        self._phase += 0.01
+        base = 500.0
+        visibility = 0.9
+        settings = np.array([0.0, 45.0, 90.0, 135.0])
+        delta = np.deg2rad(settings[:, None] - settings[None, :]) + self._phase
+        matrix = base * (1 + visibility * np.cos(2 * delta))
+        matrix += self._rng.normal(0, 5, size=(4, 4))
+        return np.clip(matrix, 1.0, None)

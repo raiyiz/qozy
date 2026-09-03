@@ -28,6 +28,19 @@ def test_poll_populates_state() -> None:
     assert state.countrate_data is not None
 
 
+def test_poll_also_populates_bell_summary_when_adapter_supports_it() -> None:
+    # SimulatorAdapter exposes get_coincidence_matrix() as a demo extra;
+    # poll() should pick it up automatically.
+    controller = MeasurementController(SimulatorAdapter(seed=0), make_config())
+    controller.start()
+    state = controller.poll()
+    assert state.coincidence_matrix is not None
+    assert state.coincidence_matrix.shape == (4, 4)
+    assert state.bell_e is not None
+    assert state.bell_s is not None
+    assert len(state.bell_s) == 4
+
+
 def test_evaluate_bell_sets_state() -> None:
     controller = MeasurementController(SimulatorAdapter(seed=0), make_config())
     flat = np.arange(1, 17, dtype=float)

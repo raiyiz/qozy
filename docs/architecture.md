@@ -46,18 +46,23 @@ src/qozy/
 
 | Page | Status |
 |---|---|
-| Counts | **Real** — wired to `MeasurementController` + `SimulatorAdapter`, live VisPy plot, start/stop |
+| Counts | **Real** — wired to `MeasurementController` + `SimulatorAdapter`, live VisPy plot, start/stop, live Bell E/S summary + coincidence matrix table |
 | Settings | Placeholder (backend/export-dir picker not wired yet) |
 | Polytope | Placeholder — no equivalent in the old code to port |
 | Heralded g2 | Placeholder — no equivalent in the old code to port |
 | State tomography | Placeholder — no equivalent in the old code to port |
 
-Bell E/S calculation (`core/bell_math.py`) and export (`core/export.py`) are
-ported and tested, but not yet called from the Counts page UI — that's the
-next wiring step (feed a real/simulated coincidence matrix into
-`controller.evaluate_bell()` and show E/S + the coincidence-matrix table
-somewhere in the Counts page, closer to what `bellvalue.plot()` used to
-draw with matplotlib).
+Bell E/S calculation (`core/bell_math.py`) is ported, tested, and now live:
+`MeasurementController.poll()` checks whether the current adapter exposes an
+(optional, non-`Protocol`) `get_coincidence_matrix()` method — `SimulatorAdapter`
+does, as a demo stand-in — and if so recomputes E/S every poll tick. The
+Counts page shows the resulting 4x4 matrix and E/S values live. A real
+hardware adapter that doesn't implement `get_coincidence_matrix()` simply
+leaves the Bell summary showing "not available for this adapter" — see the
+caveat below.
+
+`core/export.py` is ported and tested but not yet wired to a "Save" button
+in the GUI.
 
 ## Known debt carried over from the old code, not yet resolved
 
@@ -73,10 +78,11 @@ draw with matplotlib).
 
 ## Recommended next steps (plan.md phases 2 onward)
 
-1. Wire `controller.evaluate_bell()` into the Counts page (or a dedicated
-   Bell-summary panel) once there's a real/simulated coincidence-matrix
-   source.
-2. Add `export.save_measurement()` to a "Save" button on the Counts page.
+1. Wire `export.save_measurement()` to a "Save" button on the Counts page.
+2. Give `TimeTaggerAdapter` a real `get_coincidence_matrix()` (or decide
+   the live Bell summary is simulator-only, and real Bell evaluation
+   happens via an explicit angle-scan sequence + `controller.evaluate_bell()`
+   called once at the end of a scan instead of every poll tick).
 3. Swap `SimulatorAdapter` for `TimeTaggerAdapter` in `qozy/app.py` once
    hardware is available, and test against real correlation/coincidence
    timing.
@@ -84,3 +90,24 @@ draw with matplotlib).
    measurement logic or get cut from the shell — nothing in
    `old_spdc_to_port` covers them, so it's an open question, not a
    forgotten port.
+
+## CI
+
+Both `.gitlab-ci.yml` (source of truth) and `.github/workflows/ci.yml`
+(mirror) run `uv sync --extra dev`, then `ruff check .`, then
+`pytest` with `QT_QPA_PLATFORM=offscreen` so the GUI smoke tests
+(`tests/test_gui_smoke.py`) can build real `QMainWindow`/`QWidget`
+instances without a display. Both install `libegl1 libxkbcommon0
+libxcb-cursor0 libgl1` first — PyQt6's offscreen platform plugin needs
+them and they aren't in the slim/default runner images.
+
+## Known caveat with the live Bell summary
+
+`SimulatorAdapter.get_coincidence_matrix()` is a demo convenience, not
+part of `MeasurementAdapter` — it's not what a real Bell measurement looks
+like. The actual experiment scans four polarization angles over time and
+builds the 4x4 matrix from that scan (see `bellvalue.py`'s original
+`bell_angles_for_bob` logic); a live single-poll readout doesn't have that
+information yet. Treat the Counts page's E/S display as "how it'll look
+once real data is available," not as physically meaningful with real
+hardware until `TimeTaggerAdapter` grows the equivalent of that scan.

@@ -28,7 +28,7 @@ class TimeTaggerAdapter:
         self.corrs: list = []
 
     def connect(self) -> None:
-        import TimeTagger  # noqa: PLC0415 - intentionally lazy, see module docstring
+        import TimeTagger
 
         self._TimeTagger = TimeTagger
         self.tagger = TimeTagger.createTimeTagger()
@@ -46,10 +46,7 @@ class TimeTaggerAdapter:
         self.tagger.setInputDelay(channel, delay * 1e3)
 
     def setup_counters(
-        self,
-        channel_list: list[int],
-        counts_bin_width_ms: float,
-        counts_time_frame_s: float,
+        self, channel_list: list[int], counts_bin_width_ms: float, counts_time_frame_s: float
     ) -> None:
         counts_bin_number = np.ceil(counts_time_frame_s * 1e3 / counts_bin_width_ms)
         self.counter = self._TimeTagger.Counter(

@@ -20,10 +20,13 @@ from PyQt6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
+    QTableWidget,
+    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
 
+from qozy.core.bell_math import POLARIZATION_LABELS
 from qozy.core.controller import MeasurementController
 from qozy.core.data_model import ChannelConfig, MeasurementConfig, MeasurementState
 from qozy.gui.components import Card
@@ -44,9 +47,7 @@ def _parse_channels(text: str) -> list[ChannelConfig]:
 class CountsPage(QWidget):
     def __init__(self, controller: MeasurementController | None = None) -> None:
         super().__init__()
-        self.controller = controller or MeasurementController(
-            SimulatorAdapter(), MeasurementConfig()
-        )
+        self.controller = controller or MeasurementController(SimulatorAdapter(), MeasurementConfig())
         self._thread = None
         self._worker = None
 
@@ -63,6 +64,8 @@ class CountsPage(QWidget):
         self.plot_panel = PlotPanel()
         body.addWidget(self.plot_panel, 1)
         root.addLayout(body)
+
+        root.addWidget(self._build_bell_section())
 
     def _build_controls(self) -> QWidget:
         card = Card()
@@ -96,6 +99,46 @@ class CountsPage(QWidget):
 
         return card
 
+    def _build_bell_section(self) -> QWidget:
+        card = Card()
+        row = QHBoxLayout(card)
+        row.setContentsMargins(20, 16, 20, 16)
+        row.setSpacing(24)
+
+        table_col = QVBoxLayout()
+        label = QLabel("Coincidence matrix")
+        label.setObjectName("SectionTitle")
+        table_col.addWidget(label)
+
+        self.bell_table = QTableWidget(4, 4)
+        self.bell_table.setVerticalHeaderLabels(list(POLARIZATION_LABELS))
+        self.bell_table.setHorizontalHeaderLabels(["22.5°", "67.5°", "112.5°", "157.5°"])
+        self.bell_table.setFixedHeight(150)
+        self.bell_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        for r in range(4):
+            for c in range(4):
+                self.bell_table.setItem(r, c, QTableWidgetItem("—"))
+        table_col.addWidget(self.bell_table)
+        row.addLayout(table_col, 1)
+
+        summary_col = QVBoxLayout()
+        label2 = QLabel("Bell summary")
+        label2.setObjectName("SectionTitle")
+        summary_col.addWidget(label2)
+
+        self.bell_e_label = QLabel("E: —")
+        self.bell_s_label = QLabel("S: —")
+        self.bell_s_label.setObjectName("MetricValue")
+        summary_col.addWidget(self.bell_e_label)
+        summary_col.addWidget(self.bell_s_label)
+        summary_col.addStretch()
+        row.addLayout(summary_col, 1)
+
+        return card
+
+    def _bell_available(self) -> bool:
+        return hasattr(self.controller.adapter, "get_coincidence_matrix")
+
     def _start(self) -> None:
         self.controller.config.alice_channels = _parse_channels(self.alice_edit.text())
         self.controller.config.bob_channels = _parse_channels(self.bob_edit.text())
@@ -112,14 +155,16 @@ class CountsPage(QWidget):
         self.stop_button.setEnabled(True)
         self.status_label.setText("Acquiring…")
 
+        if not self._bell_available():
+            self.bell_e_label.setText("E: not available for this adapter")
+            self.bell_s_label.setText("S: —")
+
     def _stop(self) -> None:
         if self._worker is not None:
             # self._worker lives on the background thread; a direct call
             # here would touch its QTimer from the wrong thread. Queue it
             # so it actually runs on the worker's own thread.
-            QMetaObject.invokeMethod(
-                self._worker, "stop", Qt.ConnectionType.QueuedConnection
-            )
+            QMetaObject.invokeMethod(self._worker, "stop", Qt.ConnectionType.QueuedConnection)
         if self._thread is not None:
             self._thread.quit()
             self._thread.wait()
@@ -143,6 +188,21 @@ class CountsPage(QWidget):
             corr = np.interp(t, corr_t, corr_v) if len(corr_t) > 1 else None
         self.plot_panel.set_traces(t, alice, bob, corr)
         self.status_label.setText(f"Acquiring… last counter row: {counter.shape}")
+
+        if state.coincidence_matrix is not None:
+            self._update_bell_display(state)
+
+    def _update_bell_display(self, state: MeasurementState) -> None:
+        matrix = state.coincidence_matrix
+        for r in range(4):
+            for c in range(4):
+                self.bell_table.setItem(r, c, QTableWidgetItem(f"{matrix[r][c]:.0f}"))
+
+        e_text = ", ".join(f"{v:.2f}" for v in state.bell_e)
+        s_text = ", ".join(f"{v:.2f}" for v in state.bell_s)
+        max_s = max(abs(v) for v in state.bell_s)
+        self.bell_e_label.setText(f"E: {e_text}")
+        self.bell_s_label.setText(f"S: {s_text}  (max |S| = {max_s:.2f})")
 
     def _on_error(self, message: str) -> None:
         self.status_label.setText(f"Error: {message}")
