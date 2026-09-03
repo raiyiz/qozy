@@ -1,6 +1,16 @@
 from PyQt6.QtWidgets import (
-    QWidget,QVBoxLayout,QHBoxLayout,QLabel,QTableWidget,QTableWidgetItem,
-    QLineEdit,QComboBox,QPushButton,QGridLayout,QFormLayout,QCheckBox
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QTableWidget,
+    QTableWidgetItem,
+    QLineEdit,
+    QComboBox,
+    QPushButton,
+    QGridLayout,
+    QFormLayout,
+    QCheckBox,
 )
 from .components import Card, MetricCard
 
@@ -288,4 +298,3 @@ class StateTomographyPage(QWidget):
         form.addRow("Tolerance", QLineEdit("1e-3"))
         form.addRow("", QPushButton("Reconstruct state"))
         root.addWidget(card)
-

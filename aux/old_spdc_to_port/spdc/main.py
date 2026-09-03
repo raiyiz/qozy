@@ -33,7 +33,7 @@ def generate_spdc_data(angle_deg: float, phase: float, t: np.ndarray):
     bob = 980 + 410 * np.cos(np.deg2rad(t * 0.9 + 45.0 - angle_deg)) ** 2
     alice += 120 * np.sin(2.0 * np.pi * 0.03 * t + phase)
     bob += 90 * np.cos(2.0 * np.pi * 0.04 * t + phase * 0.7)
-    corr = 240 + 180 * np.exp(-((t - 50.0) / 18.0) ** 2) + 35 * np.sin(phase + t / 12.0)
+    corr = 240 + 180 * np.exp(-(((t - 50.0) / 18.0) ** 2)) + 35 * np.sin(phase + t / 12.0)
     return alice, bob, corr
 
 
@@ -73,7 +73,9 @@ class SPDCVisPyWindow(QMainWindow):
         self.angle_slider.valueChanged.connect(self._angle_changed)
 
         self.mode_combo = QComboBox()
-        self.mode_combo.addItems(["Alice / Bob visibility", "Coincidence envelope", "Bell-style summary"])
+        self.mode_combo.addItems(
+            ["Alice / Bob visibility", "Coincidence envelope", "Bell-style summary"]
+        )
         self.mode_combo.currentIndexChanged.connect(self._mode_changed)
 
         self.reset_button = QPushButton("Reset phase")
@@ -112,10 +114,18 @@ class SPDCVisPyWindow(QMainWindow):
 
         self.view = self.canvas.central_widget.add_view()
         self.view.camera = "panzoom"
-        self.grid = visuals.GridLines(parent=self.view.scene, color=(0.30, 0.38, 0.52, 0.8))
-        self.alice_line = visuals.Line(parent=self.view.scene, color=(0.928, 0.32, 0.30, 1.0), width=2.5)
-        self.bob_line = visuals.Line(parent=self.view.scene, color=(0.26, 0.72, 0.98, 1.0), width=2.5)
-        self.corr_line = visuals.Line(parent=self.view.scene, color=(0.74, 0.82, 0.26, 1.0), width=2.0)
+        self.grid = visuals.GridLines(
+            parent=self.view.scene, color=(0.30, 0.38, 0.52, 0.8)
+        )
+        self.alice_line = visuals.Line(
+            parent=self.view.scene, color=(0.928, 0.32, 0.30, 1.0), width=2.5
+        )
+        self.bob_line = visuals.Line(
+            parent=self.view.scene, color=(0.26, 0.72, 0.98, 1.0), width=2.5
+        )
+        self.corr_line = visuals.Line(
+            parent=self.view.scene, color=(0.74, 0.82, 0.26, 1.0), width=2.0
+        )
 
         root_layout.addWidget(plot_area)
 
@@ -161,7 +171,9 @@ class SPDCVisPyWindow(QMainWindow):
             self.view.camera.set_range(x=(0, 100), y=(0, 2000))
 
         self.phase += 0.03 if self.live_scan else 0.0
-        self.status_label.setText(f"Phase: {self.phase:.2f} | Angle: {self.angle_deg:.1f}°")
+        self.status_label.setText(
+            f"Phase: {self.phase:.2f} | Angle: {self.angle_deg:.1f}°"
+        )
 
 
 def main():

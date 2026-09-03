@@ -44,7 +44,9 @@ def _parse_channels(text: str) -> list[ChannelConfig]:
 class CountsPage(QWidget):
     def __init__(self, controller: MeasurementController | None = None) -> None:
         super().__init__()
-        self.controller = controller or MeasurementController(SimulatorAdapter(), MeasurementConfig())
+        self.controller = controller or MeasurementController(
+            SimulatorAdapter(), MeasurementConfig()
+        )
         self._thread = None
         self._worker = None
 
@@ -115,7 +117,9 @@ class CountsPage(QWidget):
             # self._worker lives on the background thread; a direct call
             # here would touch its QTimer from the wrong thread. Queue it
             # so it actually runs on the worker's own thread.
-            QMetaObject.invokeMethod(self._worker, "stop", Qt.ConnectionType.QueuedConnection)
+            QMetaObject.invokeMethod(
+                self._worker, "stop", Qt.ConnectionType.QueuedConnection
+            )
         if self._thread is not None:
             self._thread.quit()
             self._thread.wait()

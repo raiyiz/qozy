@@ -46,7 +46,10 @@ class TimeTaggerAdapter:
         self.tagger.setInputDelay(channel, delay * 1e3)
 
     def setup_counters(
-        self, channel_list: list[int], counts_bin_width_ms: float, counts_time_frame_s: float
+        self,
+        channel_list: list[int],
+        counts_bin_width_ms: float,
+        counts_time_frame_s: float,
     ) -> None:
         counts_bin_number = np.ceil(counts_time_frame_s * 1e3 / counts_bin_width_ms)
         self.counter = self._TimeTagger.Counter(

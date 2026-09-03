@@ -42,11 +42,16 @@ class SimulatorAdapter:
         pass
 
     def setup_counters(
-        self, channel_list: list[int], counts_bin_width_ms: float, counts_time_frame_s: float
+        self,
+        channel_list: list[int],
+        counts_bin_width_ms: float,
+        counts_time_frame_s: float,
     ) -> None:
         self._counter_channels = list(channel_list)
         self._counts_bin_width_ms = counts_bin_width_ms
-        self._counts_bin_number = int(np.ceil(counts_time_frame_s * 1e3 / counts_bin_width_ms))
+        self._counts_bin_number = int(
+            np.ceil(counts_time_frame_s * 1e3 / counts_bin_width_ms)
+        )
 
     def setup_countrates(self, channels: list[int]) -> None:
         self._countrate_channels = list(channels)
@@ -95,7 +100,7 @@ class SimulatorAdapter:
         index = (np.arange(n_bins) - n_bins / 2) * self._corr_bin_width_ns
         results = []
         for i, _b in enumerate(self._corr_b_channels):
-            envelope = 200 * np.exp(-((index) / (30 + 5 * i)) ** 2)
+            envelope = 200 * np.exp(-(((index) / (30 + 5 * i)) ** 2))
             envelope += self._rng.normal(0, 8, size=n_bins)
             results.append(np.vstack((index, np.clip(envelope, 0, None))))
         return results

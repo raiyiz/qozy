@@ -4,7 +4,16 @@ modern_pyqt_starter template — see plan.md, this isn't in scope until the
 core Counts/Bell flow (Phases 1-5) is done.
 """
 
-from PyQt6.QtWidgets import QCheckBox, QComboBox, QFormLayout, QLabel, QLineEdit, QPushButton, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import (
+    QCheckBox,
+    QComboBox,
+    QFormLayout,
+    QLabel,
+    QLineEdit,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
+)
 
 from qozy.gui.components import Card
 

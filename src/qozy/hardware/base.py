@@ -25,7 +25,10 @@ class MeasurementAdapter(Protocol):
     def setup_channel(self, channel: int, delay: float) -> None: ...
 
     def setup_counters(
-        self, channel_list: list[int], counts_bin_width_ms: float, counts_time_frame_s: float
+        self,
+        channel_list: list[int],
+        counts_bin_width_ms: float,
+        counts_time_frame_s: float,
     ) -> None: ...
 
     def setup_countrates(self, channels: list[int]) -> None: ...
