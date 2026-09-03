@@ -44,7 +44,13 @@ class MainWindow(QMainWindow):
         main.addWidget(self.build_sidebar())
 
         self.pages = QStackedWidget()
-        for page in (SettingsPage(), CountsPage(), PolytopePage(), HeraldedG2Page(), StateTomographyPage()):
+        for page in (
+            SettingsPage(),
+            CountsPage(),
+            PolytopePage(),
+            HeraldedG2Page(),
+            StateTomographyPage(),
+        ):
             self.pages.addWidget(page)
         main.addWidget(self.pages, 1)
 
@@ -65,7 +71,9 @@ class MainWindow(QMainWindow):
         layout.addSpacing(20)
 
         self.buttons = []
-        for i, text in enumerate(["Settings", "Counts", "Polytope", "Heralded g2", "State tomography"]):
+        for i, text in enumerate(
+            ["Settings", "Counts", "Polytope", "Heralded g2", "State tomography"]
+        ):
             button = NavButton(text, i)
             button.clicked.connect(lambda checked=False, idx=i: self.select_page(idx))
             self.buttons.append(button)

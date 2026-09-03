@@ -47,7 +47,9 @@ def _parse_channels(text: str) -> list[ChannelConfig]:
 class CountsPage(QWidget):
     def __init__(self, controller: MeasurementController | None = None) -> None:
         super().__init__()
-        self.controller = controller or MeasurementController(SimulatorAdapter(), MeasurementConfig())
+        self.controller = controller or MeasurementController(
+            SimulatorAdapter(), MeasurementConfig()
+        )
         self._thread = None
         self._worker = None
 

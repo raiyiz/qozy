@@ -15,7 +15,9 @@ from qozy.hardware.base import MeasurementAdapter
 
 
 class MeasurementController:
-    def __init__(self, adapter: MeasurementAdapter, config: MeasurementConfig | None = None) -> None:
+    def __init__(
+        self, adapter: MeasurementAdapter, config: MeasurementConfig | None = None
+    ) -> None:
         self.adapter = adapter
         self.config = config or MeasurementConfig()
         self.state = MeasurementState()

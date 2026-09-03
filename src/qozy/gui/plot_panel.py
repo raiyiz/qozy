@@ -33,9 +33,15 @@ class PlotPanel(QWidget):
         self.view.camera = "panzoom"
         self.grid = visuals.GridLines(parent=self.view.scene, color=(0.30, 0.38, 0.52, 0.8))
 
-        self.alice_line = visuals.Line(parent=self.view.scene, color=(0.93, 0.32, 0.30, 1.0), width=2.5)
-        self.bob_line = visuals.Line(parent=self.view.scene, color=(0.26, 0.72, 0.98, 1.0), width=2.5)
-        self.corr_line = visuals.Line(parent=self.view.scene, color=(0.74, 0.82, 0.26, 1.0), width=2.0)
+        self.alice_line = visuals.Line(
+            parent=self.view.scene, color=(0.93, 0.32, 0.30, 1.0), width=2.5
+        )
+        self.bob_line = visuals.Line(
+            parent=self.view.scene, color=(0.26, 0.72, 0.98, 1.0), width=2.5
+        )
+        self.corr_line = visuals.Line(
+            parent=self.view.scene, color=(0.74, 0.82, 0.26, 1.0), width=2.0
+        )
 
     def set_traces(
         self,
