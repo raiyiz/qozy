@@ -1,28 +1,34 @@
-# SPDC GUI project
+# QOZY
 
-This project contains a PyQt + VisPy GUI prototype for SPDC-style live signal monitoring and Bell-value analysis.
+SPDC / Bell-test measurement GUI — PyQt6 shell with a VisPy live-plotting
+canvas, ported from the older PyQt5 + pyqtgraph/matplotlib prototype. See
+`docs/architecture.md` for the module layout and porting status.
 
-## Quick start with uv
-
-```bash
-uv sync --extra dev
-uv run spdc-gui
-```
-
-## Run the package directly
+## Install (editable, dev)
 
 ```bash
-uv run python -m spdc_app
+python -m pip install -e ".[dev]"
 ```
 
-## Tests
+## Run
 
 ```bash
-uv run pytest -q
+qozy
+# or: python -m qozy.app
 ```
 
-## Project structure
+Runs against a built-in data simulator by default — no TimeTagger hardware
+required. Swapping in the real adapter is a one-line change in
+`src/qozy/app.py` (see `docs/architecture.md`).
 
-- `spdc_app/` — the package containing the GUI, controller, data model, Bell math, and simulator
-- `tests/` — project tests
-- `pyproject.toml` — project metadata and uv install configuration
+## Test
+
+```bash
+pytest
+```
+
+`core/` and `hardware/` tests run headless with no display needed. GUI
+smoke-testing (building `MainWindow`, exercising the Counts page start/stop
+cycle) can be run with `QT_QPA_PLATFORM=offscreen pytest` once GUI tests are
+added to `tests/` — not yet included here, see `docs/architecture.md` for
+what's still open.

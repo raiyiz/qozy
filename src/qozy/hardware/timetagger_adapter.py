@@ -1,0 +1,114 @@
+"""Swabian Instruments TimeTagger adapter.
+
+Ported from ``old_spdc_to_port/spdc/timetaggerlive.py`` (originally by
+Ilija Funk). Behavior is unchanged; it's now a proper class implementing
+``MeasurementAdapter`` so the controller can swap it for
+``qozy.hardware.simulator.SimulatorAdapter`` without any other code
+changing.
+
+The ``TimeTagger`` SDK is imported lazily inside ``connect()`` rather than
+at module level, since it's a vendor package (not on PyPI) that won't be
+installed on every dev machine or in CI. Importing this module is always
+safe; only ``connect()`` requires the SDK to actually be present.
+"""
+
+from __future__ import annotations
+
+import numpy as np
+
+
+class TimeTaggerAdapter:
+    def __init__(self) -> None:
+        self.tagger = None
+        self.sm = None
+        self.sm_tagger = None
+        self.counter = None
+        self.countrate = None
+        self.coin = None
+        self.corrs: list = []
+
+    def connect(self) -> None:
+        import TimeTagger  # noqa: PLC0415 - intentionally lazy, see module docstring
+
+        self._TimeTagger = TimeTagger
+        self.tagger = TimeTagger.createTimeTagger()
+
+    def disconnect(self) -> None:
+        self._TimeTagger.freeTimeTagger(self.tagger)
+
+    def setup_sm(self) -> None:
+        self.sm = self._TimeTagger.SynchronizedMeasurements(self.tagger)
+        self.sm_tagger = self.sm.getTagger()
+
+    def setup_channel(self, channel: int, delay: float) -> None:
+        """``delay`` is in ns."""
+        self.tagger.setTriggerLevel(channel, 0.1)
+        self.tagger.setInputDelay(channel, delay * 1e3)
+
+    def setup_counters(
+        self, channel_list: list[int], counts_bin_width_ms: float, counts_time_frame_s: float
+    ) -> None:
+        counts_bin_number = np.ceil(counts_time_frame_s * 1e3 / counts_bin_width_ms)
+        self.counter = self._TimeTagger.Counter(
+            self.sm_tagger, channel_list, counts_bin_width_ms * 1e9, counts_bin_number
+        )
+
+    def setup_countrates(self, channels: list[int]) -> None:
+        self.countrate = self._TimeTagger.Countrate(self.sm_tagger, channels)
+
+    def setup_coincidences(
+        self, a_channels: list[int], b_channels: list[int], coin_time_window_ns: float
+    ) -> tuple[list[list[int]], list[int]]:
+        coin_channel_combinations = [[a, b] for a in a_channels for b in b_channels]
+        self.coin = self._TimeTagger.Coincidences(
+            self.sm_tagger, coin_channel_combinations, coin_time_window_ns * 1e3
+        )
+        coin_channel_list = list(self.coin.getChannels())
+        return coin_channel_combinations, coin_channel_list
+
+    def setup_correlations(
+        self,
+        a_channels: list[int],
+        b_channels: list[int],
+        corr_bin_width_ns: float,
+        corr_time_frame_ns: float,
+    ) -> None:
+        corr_bin_number = np.ceil(corr_time_frame_ns / corr_bin_width_ns)
+        self.corrs = [
+            self._TimeTagger.Correlation(
+                self.sm_tagger, a_channels[0], b, corr_bin_width_ns * 1e3, corr_bin_number
+            )
+            for b in b_channels
+        ]
+
+    def start_sm(self) -> None:
+        self.sm.start()
+
+    def stop_sm(self) -> None:
+        self.sm.stop()
+
+    def measure_for_sm(self, time_frame_s: float) -> None:
+        self.sm.startFor(time_frame_s * 1e12, clear=True)
+        self.sm.waitUntilFinished()
+
+    def get_counter_data(self) -> np.ndarray:
+        new_values = np.array(self.counter.getData())
+        new_index = np.array(self.counter.getIndex())
+        return np.vstack((new_index, new_values))
+
+    def get_corr_data(self) -> list[np.ndarray]:
+        new_datas = []
+        for corr in self.corrs:
+            new_values = np.array(corr.getData())
+            new_index = np.array(corr.getIndex())
+            new_datas.append(np.vstack((new_index, new_values)))
+            corr.clear()  # the buffer accumulates over time otherwise
+        return new_datas
+
+    def get_countrate_data(self) -> np.ndarray:
+        new_data = np.array(self.countrate.getData())
+        self.countrate.clear()
+        return new_data
+
+    def get_total_counts(self) -> np.ndarray:
+        return np.array(self.countrate.getCountsTotal())
