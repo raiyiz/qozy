@@ -2,29 +2,32 @@ image: python:3.12-slim
 
 stages:
   - lint
-  - validate
+  - test
+
+variables:
+  UV_CACHE_DIR: "$CI_PROJECT_DIR/.cache/uv"
+  QT_QPA_PLATFORM: "offscreen"
 
 cache:
   paths:
-    - .cache/pip
+    - .cache/uv
 
-variables:
-  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
-  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+before_script:
+  # PyQt6's offscreen platform plugin needs a handful of shared libs that
+  # aren't in python:3.12-slim by default.
+  - apt-get update -qq && apt-get install -y -qq --no-install-recommends
+      libegl1 libxkbcommon0 libxcb-cursor0 libgl1 > /dev/null
+  - pip install --upgrade pip -q
+  - pip install uv -q
+  - uv sync --extra dev
 
 lint:
   stage: lint
-  before_script:
-    - python -m pip install --upgrade pip
-    - pip install -r requirements.txt
   script:
-    - ruff check .
+    - uv run ruff check .
 
-validate:
-  stage: validate
-  before_script:
-    - python -m pip install --upgrade pip
-    - pip install -r requirements.txt
+test:
+  stage: test
   script:
-    - python -m compileall -q spdc_app tests
-    - pytest -q
+    - uv run python -m compileall -q src/qozy tests
+    - uv run pytest -q
