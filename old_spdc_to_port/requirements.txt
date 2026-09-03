@@ -1,0 +1,6 @@
+numpy<2
+PyQt5>=5.15
+vispy>=0.14
+matplotlib
+pytest>=8.0
+TimeTagger
