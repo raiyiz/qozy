@@ -21,10 +21,9 @@ dev = [
 ]
 
 [project.scripts]
-spdc-gui = "app:main"
+spdc-gui = "spdc_app.main_window:main"
 
 [tool.setuptools]
-py-modules = ["app", "signal_utils"]
 packages = ["spdc_app"]
 
 [tool.uv]

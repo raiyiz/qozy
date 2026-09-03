@@ -26,5 +26,5 @@ validate:
     - python -m pip install --upgrade pip
     - pip install -r requirements.txt
   script:
-    - python -m compileall -q app.py signal_utils.py tests
+    - python -m compileall -q spdc_app tests
     - pytest -q
