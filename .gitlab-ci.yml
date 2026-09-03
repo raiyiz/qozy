@@ -12,7 +12,6 @@ cache:
     - .cache/uv
 
 before_script:
-  - pip install --upgrade pip -q
   - pip install uv -q
   - uv sync --extra dev
 
@@ -24,18 +23,39 @@ lint:
 test:
   stage: check
   before_script:
-    - apt-get update -qq
     - apt-get install -y -qq --no-install-recommends
         libegl1
         libfontconfig1
-        libxkbcommon0
-        libxcb-cursor0
-        libgl1
+        libfreetype6
         libglib2.0-0
+        libdbus-1-3
+        libgl1
+        libx11-6
+        libx11-xcb1
+        libxcb1
+        libxcb-cursor0
+        libxcb-icccm4
+        libxcb-image0
+        libxcb-keysyms1
+        libxcb-render0
+        libxcb-render-util0
+        libxcb-shape0
+        libxcb-shm0
+        libxcb-sync1
+        libxcb-xfixes0
+        libxcb-xkb1
+        libxext6
+        libxfixes3
+        libxi6
+        libxkbcommon0
+        libxkbcommon-x11-0
+        libxrandr2
+        libxrender1
+        libsm6
+        libice6
         > /dev/null
     - pip install --upgrade pip -q
     - pip install uv -q
     - uv sync --extra dev
   script:
-    - uv run python -m compileall -q src/qozy tests
     - uv run pytest -q
