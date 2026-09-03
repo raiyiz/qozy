@@ -1,8 +1,7 @@
 image: python:3.12-slim
 
 stages:
-  - lint
-  - test
+  - check
 
 variables:
   UV_CACHE_DIR: "$CI_PROJECT_DIR/.cache/uv"
@@ -13,21 +12,28 @@ cache:
     - .cache/uv
 
 before_script:
-  # PyQt6's offscreen platform plugin needs a handful of shared libs that
-  # aren't in python:3.12-slim by default.
-  - apt-get update -qq && apt-get install -y -qq --no-install-recommends
-      libegl1 libxkbcommon0 libxcb-cursor0 libgl1 > /dev/null
   - pip install --upgrade pip -q
   - pip install uv -q
   - uv sync --extra dev
 
 lint:
-  stage: lint
+  stage: check
   script:
     - uv run ruff check .
 
 test:
-  stage: test
+  stage: check
+  before_script:
+    - apt-get update -qq
+    - apt-get install -y -qq --no-install-recommends
+        libegl1
+        libfontconfig1
+        libxkbcommon0
+        libxcb-cursor0
+        libgl1
+        > /dev/null
+    - pip install --upgrade pip -q
+    - pip install uv -q
+    - uv sync --extra dev
   script:
-    - uv run python -m compileall -q src/qozy tests
     - uv run pytest -q
