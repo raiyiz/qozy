@@ -44,3 +44,6 @@ addopts = "-ra -q"
 [tool.ruff]
 line-length = 100
 src = ["src", "tests"]
+exclude = [
+    "aux/",
+]
