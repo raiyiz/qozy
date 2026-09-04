@@ -112,3 +112,28 @@ def test_settings_page_controls_simulator_polarization_stages(qapp) -> None:
     _pump(qapp, 0.25)
     assert alice["status"].text() == "Connected"
     assert alice["connect"].text() == "Disconnect"
+
+
+def test_settings_page_network_backend_field_and_validation(qapp) -> None:
+    window = MainWindow(qapp)
+    settings_page = window.pages.widget(0)
+
+    # simulator connects at startup, so the backend must be disconnected
+    # before it can be reconfigured
+    settings_page._toggle_connection()
+    _pump(qapp, 0.25)
+    assert not settings_page.hardware.connected
+    assert settings_page.backend.isEnabled()
+
+    # switching to the network backend enables the address field
+    assert not settings_page.network_address.isEnabled()
+    settings_page.backend.setCurrentIndex(2)
+    assert settings_page.network_address.isEnabled()
+
+    # attempting to connect without an address is rejected before any
+    # background worker starts
+    settings_page.network_address.setText("")
+    settings_page._toggle_connection()
+    assert settings_page.status_label.text() == "Error: enter a network server address"
+    assert not settings_page.hardware.connected
+    assert settings_page.connect_button.text() == "Connect"

@@ -81,8 +81,10 @@ uv run pytest
 
 GUI smoke tests use `QT_QPA_PLATFORM=offscreen` (configured in
 `tests/conftest.py`), so the PyQt6 shell can be exercised without a display.
-The suite also covers Time Tagger backend behavior, simulator polarization
-stages, Settings-stage controls, and the four-theme cycling behavior.
+The suite also covers Time Tagger backend behavior (including the network
+backend and the connect/disconnect reconfiguration guard), simulator
+polarization stages, Settings acquisition and stage controls, and the
+four-theme cycling behavior.
 
 ## Lint
 

@@ -196,7 +196,12 @@ measurement interface.
 
 The test suite covers the core math/data/controller/export code without a
 display, plus PyQt6 smoke tests for the main window, live acquisition start/stop,
-Bell scan, simulator stage controls, and four-theme cycling.
+Bell scan, simulator stage controls, four-theme cycling, and the Settings
+network-backend field enabling/validation. Time Tagger backend tests cover
+both the local/network adapter factory calls (with the vendor SDK mocked)
+and `HardwareManager`'s reconnection guard, which requires the current
+backend to be disconnected before `select()` can change it — the same rule
+already enforced for the Alice/Bob stage backends.
 
 For GUI tests, `tests/conftest.py` sets `QT_QPA_PLATFORM=offscreen`. CI installs
 the Qt/OpenGL system libraries needed by the offscreen PyQt6 platform, then
