@@ -5,7 +5,7 @@ from __future__ import annotations
 import time
 
 from qozy.gui.main_window import MainWindow
-from qozy.gui.theme import apply_theme
+from qozy.gui.theme import THEMES, apply_theme
 
 
 def _pump(qapp, duration_s: float = 0.5) -> None:
@@ -16,11 +16,22 @@ def _pump(qapp, duration_s: float = 0.5) -> None:
 
 
 def test_main_window_builds_all_pages(qapp) -> None:
-    apply_theme(qapp, "light")
+    apply_theme(qapp, "classic-light")
     window = MainWindow(qapp)
     assert window.pages.count() == 6
     window.select_page(1)
     assert window.pages.currentIndex() == 1
+
+
+def test_theme_button_cycles_all_four_themes(qapp) -> None:
+    window = MainWindow(qapp)
+    assert len(THEMES) == 4
+    assert window.mode == "classic-light"
+
+    for expected in ("classic-dark", "soft-dark", "soft-light", "classic-light"):
+        window.cycle_theme()
+        assert window.mode == expected
+        assert THEMES[window.mode][0] in window.theme_button.text()
 
 
 def test_counts_page_start_stop_cycle_updates_bell_summary(qapp) -> None:
