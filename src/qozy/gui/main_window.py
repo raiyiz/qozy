@@ -22,7 +22,7 @@ from qozy.gui.pages import (
     TimeTaggerSettingsPage,
 from qozy.gui.pages import CountsPage, HeraldedG2Page, PolytopePage, SettingsPage, StateTomographyPage
 )
-from qozy.gui.theme import apply_theme
+from qozy.gui.theme import THEMES, apply_theme
 from qozy.hardware.manager import HardwareManager
 
 
@@ -30,7 +30,9 @@ class MainWindow(QMainWindow):
     def __init__(self, app) -> None:
         super().__init__()
         self.app = app
-        self.mode = "light"
+        self.theme_modes = tuple(THEMES)
+        self.theme_index = 0
+        self.mode = self.theme_modes[self.theme_index]
         self.hardware = HardwareManager()
 
         icon_path = Path(__file__).resolve().parent / "icons" / "logo.png"
@@ -69,7 +71,9 @@ class MainWindow(QMainWindow):
         self.counts_page.acquisition_changed.connect(self.settings_page.set_busy)
 
         self.setCentralWidget(root)
+        apply_theme(self.app, self.mode)
         self.select_page(0)
+        self._update_theme_button()
 
     def build_sidebar(self) -> QFrame:
         sidebar = QFrame()
@@ -101,10 +105,11 @@ class MainWindow(QMainWindow):
             layout.addWidget(button)
         layout.addStretch()
 
-        theme_button = QPushButton("Toggle dark mode")
-        theme_button.setObjectName("Secondary")
-        theme_button.clicked.connect(self.toggle_theme)
-        layout.addWidget(theme_button)
+        self.theme_button = QPushButton()
+        self.theme_button.setObjectName("Secondary")
+        self.theme_button.setToolTip("Cycle through the four QOZY themes")
+        self.theme_button.clicked.connect(self.cycle_theme)
+        layout.addWidget(self.theme_button)
         return sidebar
 
     def select_page(self, index: int) -> None:
@@ -112,7 +117,15 @@ class MainWindow(QMainWindow):
         for i, button in enumerate(self.buttons):
             button.set_active(i == index)
 
-    def toggle_theme(self) -> None:
-        self.mode = "dark" if self.mode == "light" else "light"
+    def cycle_theme(self) -> None:
+        self.theme_index = (self.theme_index + 1) % len(self.theme_modes)
+        self.mode = self.theme_modes[self.theme_index]
         apply_theme(self.app, self.mode)
         self.select_page(self.pages.currentIndex())
+        self._update_theme_button()
+
+    def _update_theme_button(self) -> None:
+        label, _colors = THEMES[self.mode]
+        next_index = (self.theme_index + 1) % len(self.theme_modes)
+        next_label, _ = THEMES[self.theme_modes[next_index]]
+        self.theme_button.setText(f"{label}  →  {next_label}")
