@@ -72,6 +72,7 @@ SOFT_LIGHT = {
     "disabled": "#A5A9A1",
 }
 
+THEME_ORDER = ("classic-light", "classic-dark", "soft-dark", "soft-light")
 THEMES = {
     "classic-light": ("Classic Light", CLASSIC_LIGHT),
     "classic-dark": ("Classic Dark", CLASSIC_DARK),
