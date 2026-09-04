@@ -1,11 +1,4 @@
-"""Polls a MeasurementController on a background QThread and emits the
-results, so the main window's paint/event loop never blocks on hardware
-(or simulator) I/O.
-
-This mirrors plan.md's "Qt worker threads for live acquisition" step: the
-worker only touches the controller/adapter; the main window only touches
-the emitted signal, never the adapter directly.
-"""
+"""Run measurement lifecycle and polling on a background QThread."""
 
 from __future__ import annotations
 
@@ -16,8 +9,17 @@ from qozy.core.data_model import MeasurementState
 
 
 class AcquisitionWorker(QObject):
-    data_ready = pyqtSignal(object)  # emits MeasurementState
+    """Own every potentially blocking MeasurementAdapter call.
+
+    The GUI thread only starts/stops the QThread and consumes signals. In
+    particular, ``controller.start()`` and ``controller.stop()`` are also run
+    here; otherwise a future hardware backend could still block the GUI during
+    start/stop even though polling was threaded.
+    """
+
+    data_ready = pyqtSignal(object)
     error = pyqtSignal(str)
+    stopped = pyqtSignal()
 
     def __init__(self, controller: MeasurementController, interval_ms: int = 100) -> None:
         super().__init__()
@@ -27,27 +29,31 @@ class AcquisitionWorker(QObject):
 
     @pyqtSlot()
     def start(self) -> None:
-        """Must run on this worker's own thread — the QTimer it creates is
-        bound to whatever thread calls this. Only ever invoke via the
-        ``thread.started`` signal (see ``make_worker_thread``), never
-        directly from the GUI thread."""
-        self._timer = QTimer()
-        self._timer.timeout.connect(self._poll)
-        self._timer.start(self.interval_ms)
+        try:
+            self.controller.start()
+            self._timer = QTimer(self)
+            self._timer.timeout.connect(self._poll)
+            self._timer.start(self.interval_ms)
+        except Exception as exc:  # noqa: BLE001 - hardware errors belong in the UI
+            self.error.emit(str(exc))
+            self.stopped.emit()
 
     @pyqtSlot()
     def stop(self) -> None:
-        """Same rule as ``start``: call this via a queued cross-thread
-        signal/slot connection (or QMetaObject.invokeMethod), never
-        directly — see ``CountsPage._stop``."""
         if self._timer is not None:
             self._timer.stop()
+        try:
+            self.controller.stop()
+        except Exception as exc:  # noqa: BLE001 - report hardware stop failures
+            self.error.emit(str(exc))
+        finally:
+            self.stopped.emit()
 
+    @pyqtSlot()
     def _poll(self) -> None:
         try:
             state: MeasurementState = self.controller.poll()
-        except Exception as exc:  # noqa: BLE001 - any adapter/hardware failure should
-            # surface in the UI via `error`, not crash the polling thread silently
+        except Exception as exc:  # noqa: BLE001 - hardware failures belong in the UI
             self.error.emit(str(exc))
             return
         self.data_ready.emit(state)
