@@ -37,7 +37,20 @@ def test_counts_page_start_stop_cycle_updates_bell_summary(qapp) -> None:
     qapp.processEvents()
 
     assert counts_page.status_label.text() == "Stopped"
-    # the simulator's get_coincidence_matrix() should have driven at least
-    # one Bell-summary update while acquiring
+
+
+def test_counts_page_bell_scan_updates_summary(qapp) -> None:
+    window = MainWindow(qapp)
+    counts_page = window.pages.widget(1)
+
+    counts_page._run_bell_scan()
+    # the scan runs 16 fast simulated settings on its own thread; give it a
+    # moment and keep pumping the event loop so its finished signal lands
+    for _ in range(50):
+        qapp.processEvents()
+        if counts_page.status_label.text() == "Scan complete":
+            break
+        time.sleep(0.05)
+
+    assert counts_page.status_label.text() == "Scan complete"
     assert counts_page.bell_e_label.text() != "E: —"
-    assert "not available" not in counts_page.bell_e_label.text()

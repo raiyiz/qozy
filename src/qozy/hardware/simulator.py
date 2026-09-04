@@ -18,6 +18,7 @@ class SimulatorAdapter:
         self._rng = np.random.default_rng(seed)
         self._phase = 0.0
         self._connected = False
+        self._angle_context: tuple[float, float] | None = None
 
         self._counter_channels: list[int] = []
         self._counts_bin_width_ms = 100.0
@@ -107,24 +108,44 @@ class SimulatorAdapter:
 
     def get_total_counts(self) -> np.ndarray:
         n = max(len(self._countrate_channels), 1)
+        if self._angle_context is not None:
+            # Angle-dependent, so BellScanController's simulated scan gets a
+            # believable (CHSH-violating) matrix instead of flat noise.
+            alice_deg, bob_deg = self._angle_context
+            delta = np.deg2rad(alice_deg - bob_deg)
+            value = 500.0 * (1 + 0.9 * np.cos(2 * delta)) + self._rng.normal(0, 5)
+            return np.full(n, max(value, 1.0))
         return (1000 + 100 * np.arange(n)) * 100
 
-    def get_coincidence_matrix(self) -> np.ndarray:
-        """Demo-only extra, not part of ``MeasurementAdapter``: a synthetic
-        4x4 coincidence-count matrix (V/H/D/A x four Bob angles) with a
-        built-in CHSH violation, so the Bell summary on the Counts page has
-        something non-trivial to show without hardware.
-
-        A real adapter would build this from an actual polarization-angle
-        scan (see plan.md Phase 5) rather than a single live readout — this
-        is a stand-in for that, not a claim about how the real measurement
-        works.
+    def set_angle_context(self, alice_deg: float, bob_deg: float) -> None:
+        """Demo-only hook: BellScanController calls this (via getattr, not
+        part of MeasurementAdapter) before each measurement so simulated
+        counts vary with the current stage angles, like a real scan would.
+        A real adapter doesn't need this — actual coincidence counts
+        naturally depend on the physical polarizer angles.
         """
-        self._phase += 0.01
-        base = 500.0
-        visibility = 0.9
-        settings = np.array([0.0, 45.0, 90.0, 135.0])
-        delta = np.deg2rad(settings[:, None] - settings[None, :]) + self._phase
-        matrix = base * (1 + visibility * np.cos(2 * delta))
-        matrix += self._rng.normal(0, 5, size=(4, 4))
-        return np.clip(matrix, 1.0, None)
+        self._angle_context = (alice_deg, bob_deg)
+
+
+class SimulatorStage:
+    """In-memory stand-in for ElliptecAdapter — same PositionerAdapter
+    shape, no serial port needed."""
+
+    def __init__(self, seed: int | None = None) -> None:
+        self._angle = 0.0
+
+    def connect(self) -> None:
+        pass
+
+    def disconnect(self) -> None:
+        pass
+
+    def home(self) -> None:
+        self._angle = 0.0
+
+    def get_angle(self) -> float:
+        return self._angle
+
+    def set_angle(self, angle_deg: float) -> float:
+        self._angle = angle_deg
+        return self._angle

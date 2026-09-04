@@ -111,3 +111,38 @@ builds the 4x4 matrix from that scan (see `bellvalue.py`'s original
 information yet. Treat the Counts page's E/S display as "how it'll look
 once real data is available," not as physically meaningful with real
 hardware until `TimeTaggerAdapter` grows the equivalent of that scan.
+
+## Bell angle scan (real, not simulator-only)
+
+`core/scan_controller.py::BellScanController` runs an actual 4x4
+polarization-angle scan: move Alice's and Bob's stages to each of the four
+`BELL_ANGLES_DEG` settings, integrate coincidences for a fixed time,
+record the count, repeat for all 16 combinations, then `calc_e_s()` on the
+result. `gui/scan_worker.py` runs it on its own `QThread` and the Counts
+page's "Run Bell scan" button drives it, filling the coincidence table in
+live via `cell_done` and showing E/S once `finished` fires.
+
+Stages are anything implementing `hardware/base.py::PositionerAdapter`
+(`connect`, `disconnect`, `home`, `get_angle`, `set_angle`):
+- `hardware/elliptec_adapter.py::ElliptecAdapter` — real Thorlabs Elliptec
+  rotators, via the `elliptec` PyPI package. `Rotator.set_angle()`/`.home()`
+  block until the device's serial response confirms the move, so there's
+  no separate settle-wait step needed.
+- `hardware/simulator.py::SimulatorStage` — in-memory stand-in, and
+  `SimulatorAdapter.set_angle_context()` (duck-typed, not part of
+  `MeasurementAdapter`) makes the simulator's coincidence counts vary with
+  the current angles so a simulated scan shows a believable CHSH violation.
+
+This replaces the old poll-tick `get_coincidence_matrix()` stand-in
+entirely — live acquisition (Start/Stop) and the Bell scan are now
+separate, mutually-exclusive actions on the Counts page, since both need
+exclusive use of the coincidence adapter.
+
+**Not yet done:** `qozy/app.py` still only ever constructs
+`SimulatorAdapter`/`SimulatorStage` — wiring real `TimeTaggerAdapter` +
+two `ElliptecAdapter`s (with real ports/addresses, presumably from the
+Settings page) into `qozy/app.py` and `CountsPage` is the next step
+before this can run against actual hardware. Also worth deciding: two
+serial ports (one Elliptec controller per stage) or one shared port with
+two addresses — `ElliptecAdapter` supports either, it just takes whatever
+`port`/`address` it's given.

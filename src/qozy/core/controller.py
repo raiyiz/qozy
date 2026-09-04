@@ -57,26 +57,10 @@ class MeasurementController:
         self.config.live_acquisition = False
 
     def poll(self) -> MeasurementState:
-        """Pull the latest data from the adapter into ``self.state``.
-
-        If the adapter exposes an (optional, non-Protocol) live
-        ``get_coincidence_matrix()`` — as ``SimulatorAdapter`` does for
-        demo purposes — also refresh the Bell E/S summary from it. A real
-        hardware adapter that doesn't have that method simply won't
-        populate ``bell_e``/``bell_s`` here; see plan.md Phase 5 for why a
-        real live Bell readout needs an angle-scan sequence instead of a
-        single poll.
-        """
+        """Pull the latest data from the adapter into ``self.state``."""
         self.state.counter_data = self.adapter.get_counter_data()
         self.state.corr_data = self.adapter.get_corr_data()
         self.state.countrate_data = self.adapter.get_countrate_data()
-
-        get_matrix = getattr(self.adapter, "get_coincidence_matrix", None)
-        if get_matrix is not None:
-            matrix = get_matrix()
-            self.state.coincidence_matrix = matrix
-            self.state.bell_e, self.state.bell_s = calc_e_s(matrix)
-
         return self.state
 
     def evaluate_bell(self, flat_coincidence_counts) -> None:

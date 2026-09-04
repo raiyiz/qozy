@@ -12,6 +12,18 @@ wheels = [
 ]
 
 [[package]]
+name = "elliptec"
+version = "0.1.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pyserial" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/72/f0/48c6adf3b914be3b3e33d30bf9604f5da6416be23a97233555c173914397/elliptec-0.1.0.tar.gz", hash = "sha256:b9e19579bb558d1236d5796ed12c8c93a3d8d19a9815d07b06241ac7ad39abc0", size = 93175, upload-time = "2026-03-08T13:42:01.81Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c7/bf/e0895fa52715feb2b67f5f75d54bc2e0f45da1aa99fa0214621eb0d71437/elliptec-0.1.0-py3-none-any.whl", hash = "sha256:0aab63f5497d2f40af00ac1d3c5096e456006984d9bbbca98ef1e8fbf9c1b549", size = 42404, upload-time = "2026-03-08T13:42:00.282Z" },
+]
+
+[[package]]
 name = "freetype-py"
 version = "2.5.1"
 source = { registry = "https://pypi.org/simple" }
@@ -250,6 +262,15 @@ wheels = [
 ]
 
 [[package]]
+name = "pyserial"
+version = "3.5"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/1e/7d/ae3f0a63f41e4d2f6cb66a5b57197850f919f59e558159a4dd3a818f5082/pyserial-3.5.tar.gz", hash = "sha256:3c77e014170dfffbd816e6ffc205e9842efb10be9f58ec16d3e8675b4925cddb", size = 159125, upload-time = "2020-11-23T03:59:15.045Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/07/bc/587a445451b253b285629263eb51c2d8e9bcea4fc97826266d186f96f558/pyserial-3.5-py2.py3-none-any.whl", hash = "sha256:c4451db6ba391ca6ca299fb3ec7bae67a5c55dde170964c7a14ceefec02f2cf0", size = 90585, upload-time = "2020-11-23T03:59:13.41Z" },
+]
+
+[[package]]
 name = "pytest"
 version = "9.1.1"
 source = { registry = "https://pypi.org/simple" }
@@ -284,6 +305,7 @@ name = "qozy"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "elliptec" },
     { name = "numpy" },
     { name = "pyqt6" },
     { name = "vispy" },
@@ -298,6 +320,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "elliptec", specifier = ">=0.1.0" },
     { name = "numpy", specifier = ">=1.26,<2" },
     { name = "pyqt6", specifier = ">=6.6" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },

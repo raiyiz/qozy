@@ -1,12 +1,14 @@
-"""The Counts page: the first page actually wired to real logic instead of
-placeholder metric cards. Replaces the standalone window from
+"""The Counts page: wired to real logic instead of placeholder metric
+cards. Replaces the standalone window from
 ``old_spdc_to_port/spdc/main.py`` — same live acquisition + channel config
 idea, now embedded as one tab of the QOZY shell and driven by
-MeasurementController instead of hand-rolled UI state.
+MeasurementController (live counts/corr plot) and BellScanController (an
+actual polarization-angle scan) instead of hand-rolled UI state.
 
-Runs against SimulatorAdapter by default. Swapping in
-``qozy.hardware.timetagger_adapter.TimeTaggerAdapter`` is a one-line change
-in ``qozy.app`` once real hardware is available (see plan.md Phase 4).
+Runs against SimulatorAdapter + SimulatorStage by default. Swapping in
+``qozy.hardware.timetagger_adapter.TimeTaggerAdapter`` and
+``qozy.hardware.elliptec_adapter.ElliptecAdapter`` is a one-line change in
+``qozy.app`` once real hardware is available.
 """
 
 from __future__ import annotations
@@ -29,10 +31,12 @@ from PyQt6.QtWidgets import (
 from qozy.core.bell_math import POLARIZATION_LABELS
 from qozy.core.controller import MeasurementController
 from qozy.core.data_model import ChannelConfig, MeasurementConfig, MeasurementState
+from qozy.core.scan_controller import BellScanController
 from qozy.gui.components import Card
 from qozy.gui.plot_panel import PlotPanel
+from qozy.gui.scan_worker import make_scan_thread
 from qozy.gui.worker import make_worker_thread
-from qozy.hardware.simulator import SimulatorAdapter
+from qozy.hardware.simulator import SimulatorAdapter, SimulatorStage
 
 
 def _parse_channels(text: str) -> list[ChannelConfig]:
@@ -50,8 +54,12 @@ class CountsPage(QWidget):
         self.controller = controller or MeasurementController(
             SimulatorAdapter(), MeasurementConfig()
         )
+        self.alice_stage = SimulatorStage()
+        self.bob_stage = SimulatorStage()
         self._thread = None
         self._worker = None
+        self._scan_thread = None
+        self._scan_worker = None
 
         root = QVBoxLayout(self)
         root.setContentsMargins(32, 28, 32, 28)
@@ -128,6 +136,10 @@ class CountsPage(QWidget):
         label2.setObjectName("SectionTitle")
         summary_col.addWidget(label2)
 
+        self.scan_button = QPushButton("Run Bell scan")
+        self.scan_button.clicked.connect(self._run_bell_scan)
+        summary_col.addWidget(self.scan_button)
+
         self.bell_e_label = QLabel("E: —")
         self.bell_s_label = QLabel("S: —")
         self.bell_s_label.setObjectName("MetricValue")
@@ -137,9 +149,6 @@ class CountsPage(QWidget):
         row.addLayout(summary_col, 1)
 
         return card
-
-    def _bell_available(self) -> bool:
-        return hasattr(self.controller.adapter, "get_coincidence_matrix")
 
     def _start(self) -> None:
         self.controller.config.alice_channels = _parse_channels(self.alice_edit.text())
@@ -155,11 +164,8 @@ class CountsPage(QWidget):
         self.live_checkbox.setChecked(True)
         self.start_button.setEnabled(False)
         self.stop_button.setEnabled(True)
+        self.scan_button.setEnabled(False)  # scan and live acquisition share the adapter
         self.status_label.setText("Acquiring…")
-
-        if not self._bell_available():
-            self.bell_e_label.setText("E: not available for this adapter")
-            self.bell_s_label.setText("S: —")
 
     def _stop(self) -> None:
         if self._worker is not None:
@@ -175,6 +181,7 @@ class CountsPage(QWidget):
         self.live_checkbox.setChecked(False)
         self.start_button.setEnabled(True)
         self.stop_button.setEnabled(False)
+        self.scan_button.setEnabled(True)
         self.status_label.setText("Stopped")
 
     def _on_data(self, state: MeasurementState) -> None:
@@ -191,21 +198,45 @@ class CountsPage(QWidget):
         self.plot_panel.set_traces(t, alice, bob, corr)
         self.status_label.setText(f"Acquiring… last counter row: {counter.shape}")
 
-        if state.coincidence_matrix is not None:
-            self._update_bell_display(state)
-
-    def _update_bell_display(self, state: MeasurementState) -> None:
-        matrix = state.coincidence_matrix
-        for r in range(4):
-            for c in range(4):
-                self.bell_table.setItem(r, c, QTableWidgetItem(f"{matrix[r][c]:.0f}"))
-
-        e_text = ", ".join(f"{v:.2f}" for v in state.bell_e)
-        s_text = ", ".join(f"{v:.2f}" for v in state.bell_s)
-        max_s = max(abs(v) for v in state.bell_s)
-        self.bell_e_label.setText(f"E: {e_text}")
-        self.bell_s_label.setText(f"S: {s_text}  (max |S| = {max_s:.2f})")
-
     def _on_error(self, message: str) -> None:
         self.status_label.setText(f"Error: {message}")
         self._stop()
+
+    def _run_bell_scan(self) -> None:
+        alice = [c.channel for c in _parse_channels(self.alice_edit.text())]
+        bob = [c.channel for c in _parse_channels(self.bob_edit.text())]
+        scan = BellScanController(
+            self.controller.adapter, self.alice_stage, self.bob_stage, alice, bob
+        )
+        self._scan_thread, self._scan_worker = make_scan_thread(scan)
+        self._scan_worker.cell_done.connect(self._on_scan_cell)
+        self._scan_worker.finished.connect(self._on_scan_finished)
+        self._scan_worker.error.connect(self._on_scan_error)
+        self._scan_thread.start()
+
+        self.scan_button.setEnabled(False)
+        self.start_button.setEnabled(False)
+        self.status_label.setText("Running Bell scan…")
+
+    def _on_scan_cell(self, row: int, col: int, value: float) -> None:
+        self.bell_table.setItem(row, col, QTableWidgetItem(f"{value:.0f}"))
+
+    def _on_scan_finished(self, matrix: np.ndarray, e: np.ndarray, s: np.ndarray) -> None:
+        e_text = ", ".join(f"{v:.2f}" for v in e)
+        s_text = ", ".join(f"{v:.2f}" for v in s)
+        max_s = max(abs(v) for v in s)
+        self.bell_e_label.setText(f"E: {e_text}")
+        self.bell_s_label.setText(f"S: {s_text}  (max |S| = {max_s:.2f})")
+        self.status_label.setText("Scan complete")
+        self._finish_scan_thread()
+
+    def _on_scan_error(self, message: str) -> None:
+        self.status_label.setText(f"Scan error: {message}")
+        self._finish_scan_thread()
+
+    def _finish_scan_thread(self) -> None:
+        if self._scan_thread is not None:
+            self._scan_thread.quit()
+            self._scan_thread.wait()
+        self.scan_button.setEnabled(True)
+        self.start_button.setEnabled(True)
