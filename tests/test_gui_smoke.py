@@ -25,7 +25,7 @@ def test_main_window_builds_all_pages(qapp) -> None:
 
 def test_theme_button_cycles_all_four_themes(qapp) -> None:
     window = MainWindow(qapp)
-    assert len(THEMES) == 4
+    assert len(THEMES) == 6
     assert window.mode == "classic-light"
 
     for expected in ("classic-dark", "soft-dark", "soft-light", "classic-light"):
