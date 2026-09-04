@@ -1,6 +1,42 @@
 from PyQt6.QtGui import QFont
 
-LIGHT = {
+CLASSIC_LIGHT = {
+    "bg": "#F6F7F9",
+    "surface": "#FFFFFF",
+    "surface_alt": "#F1F3F5",
+    "surface_hover": "#EBEEF2",
+    "input": "#FFFFFF",
+    "border": "#E4E7EC",
+    "border_subtle": "#EEF0F3",
+    "text": "#101828",
+    "muted": "#667085",
+    "placeholder": "#98A2B3",
+    "primary": "#2563EB",
+    "primary_hover": "#1D4ED8",
+    "primary_pressed": "#1B46C0",
+    "selection": "#E8EEF9",
+    "disabled": "#A7AFBC",
+}
+
+CLASSIC_DARK = {
+    "bg": "#0B0F14",
+    "surface": "#121820",
+    "surface_alt": "#1A222C",
+    "surface_hover": "#202A34",
+    "input": "#10161D",
+    "border": "#283442",
+    "border_subtle": "#1E2730",
+    "text": "#F2F4F7",
+    "muted": "#98A2B3",
+    "placeholder": "#6F7A86",
+    "primary": "#4F8CFF",
+    "primary_hover": "#5E97FF",
+    "primary_pressed": "#3D7AF0",
+    "selection": "#253454",
+    "disabled": "#5E6874",
+}
+
+SOFT_LIGHT = {
     "bg": "#F7F8FA",
     "surface": "#FFFFFF",
     "surface_alt": "#F2F4F7",
@@ -18,7 +54,7 @@ LIGHT = {
     "disabled": "#A7AFBC",
 }
 
-DARK = {
+SOFT_DARK = {
     "bg": "#0E1217",
     "surface": "#141A21",
     "surface_alt": "#1A222B",
@@ -34,6 +70,13 @@ DARK = {
     "primary_pressed": "#587EDC",
     "selection": "#25345A",
     "disabled": "#5E6874",
+}
+
+THEMES = {
+    "classic-light": ("Classic Light", CLASSIC_LIGHT),
+    "classic-dark": ("Classic Dark", CLASSIC_DARK),
+    "soft-dark": ("Soft Dark", SOFT_DARK),
+    "soft-light": ("Soft Light", SOFT_LIGHT),
 }
 
 
@@ -227,6 +270,6 @@ def stylesheet(c):
 
 
 def apply_theme(app, mode):
-    colors = DARK if mode == "dark" else LIGHT
+    _label, colors = THEMES[mode]
     app.setStyleSheet(stylesheet(colors))
     app.setFont(QFont("Segoe UI", 10))
