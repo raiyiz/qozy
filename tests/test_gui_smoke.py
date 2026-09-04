@@ -81,7 +81,7 @@ def test_counts_page_bell_scan_updates_summary(qapp) -> None:
 
 def test_settings_page_controls_simulator_polarization_stages(qapp) -> None:
     window = MainWindow(qapp)
-    settings_page = window.pages.widget(4)
+    settings_page = window.pages.widget(0)
 
     alice = settings_page._stage_widgets["alice"]
     alice_target = alice["target"]
