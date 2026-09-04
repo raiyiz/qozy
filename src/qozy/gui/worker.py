@@ -9,13 +9,7 @@ from qozy.core.data_model import MeasurementState
 
 
 class AcquisitionWorker(QObject):
-    """Own every potentially blocking MeasurementAdapter call.
-
-    The GUI thread only starts/stops the QThread and consumes signals. In
-    particular, ``controller.start()`` and ``controller.stop()`` are also run
-    here; otherwise a future hardware backend could still block the GUI during
-    start/stop even though polling was threaded.
-    """
+    """Own every potentially blocking MeasurementAdapter call."""
 
     data_ready = pyqtSignal(object)
     error = pyqtSignal(str)
@@ -53,8 +47,9 @@ class AcquisitionWorker(QObject):
     def _poll(self) -> None:
         try:
             state: MeasurementState = self.controller.poll()
-        except Exception as exc:  # noqa: BLE001 - hardware failures belong in the UI
+        except Exception as exc:  # noqa: BLE001 - stop after a hardware failure
             self.error.emit(str(exc))
+            self.stop()
             return
         self.data_ready.emit(state)
 
