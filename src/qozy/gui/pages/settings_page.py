@@ -182,6 +182,10 @@ class SettingsPage(QWidget):
         layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(12)
 
+        heading = QLabel(title)
+        heading.setObjectName("SectionTitle")
+        layout.addRow(heading)
+
         backend = QComboBox()
         for label, _name in self._STAGE_BACKENDS:
             backend.addItem(label)
@@ -238,7 +242,6 @@ class SettingsPage(QWidget):
             "home": home,
             "refresh": refresh,
         }
-        card.setProperty("stageTitle", title)
         self._stage_backend_changed(stage)
         return card
 
@@ -322,9 +325,7 @@ class SettingsPage(QWidget):
             assert isinstance(value, (float, int))
             assert isinstance(widgets["angle"], QLabel)
             widgets["angle"].setText(f"{float(value):.2f}°")
-            if action == "move":
-                widgets["status"].setText("Connected")
-            elif action == "home":
+            if action in {"move", "home"}:
                 widgets["status"].setText("Connected")
 
     def _on_stage_error(self, stage: StageName, message: str) -> None:
