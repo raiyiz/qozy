@@ -1,148 +1,222 @@
 # QOZY architecture
 
-```
+QOZY is split into a hardware-independent measurement core, hardware adapters,
+and a PyQt6 GUI. The important boundary is that GUI pages never need to know
+which vendor backend is underneath them.
+
+```text
 src/qozy/
-├── app.py                  # entry point (console script `qozy`)
-├── core/                   # no PyQt, no TimeTagger SDK — fully unit-testable
-│   ├── bell_math.py        # ported from old_spdc_to_port/spdc/bellvalue.py::calc_e_s
-│   ├── data_model.py       # MeasurementConfig / MeasurementState dataclasses
-│   ├── controller.py       # orchestrates config + adapter + bell math
-│   └── export.py           # ported from old_spdc_to_port/spdc/savedata.py
+├── app.py                         # console entry point
+├── core/
+│   ├── bell_math.py              # Bell/CHSH calculations and angle constants
+│   ├── data_model.py             # measurement configuration/state dataclasses
+│   ├── controller.py             # MeasurementController
+│   ├── scan_controller.py        # hardware-independent 4×4 Bell angle scan
+│   └── export.py                 # measurement export helpers
 ├── hardware/
-│   ├── base.py              # MeasurementAdapter Protocol — the shared shape
-│   ├── timetagger_adapter.py  # ported from old_spdc_to_port/spdc/timetaggerlive.py
-│   └── simulator.py         # synthetic adapter, same interface, no hardware needed
-└── gui/                     # PyQt6, built out from the modern_pyqt_starter template
-    ├── theme.py, components.py   # carried over unchanged
-    ├── main_window.py            # sidebar + page stack
-    ├── plot_panel.py             # VisPy canvas, replaces old pyqtgraph/matplotlib
-    ├── worker.py                 # QThread polling, keeps GUI thread unblocked
+│   ├── base.py                   # MeasurementAdapter + PositionerAdapter protocols
+│   ├── manager.py                # process-wide acquisition/stage ownership
+│   ├── simulator.py              # simulator acquisition + simulator stages
+│   ├── timetagger_adapter.py     # Swabian TimeTagger SDK adapter
+│   ├── timetagger_local.py       # local TimeTagger backend
+│   ├── timetagger_network.py     # network TimeTagger backend
+│   └── elliptec_adapter.py       # Thorlabs Elliptec rotator adapter
+└── gui/
+    ├── theme.py                  # four QOZY visual presets
+    ├── components.py             # reusable Qt widgets
+    ├── main_window.py            # sidebar + page stack + theme cycling
+    ├── hardware_worker.py        # background connection/stage operations
+    ├── worker.py                 # background live acquisition
+    ├── scan_worker.py            # background Bell scan
+    ├── plot_panel.py             # VisPy live plotting
     └── pages/
-        ├── counts_page.py        # wired to controller + simulator (real, not a placeholder)
-        └── settings_page.py, polytope_page.py, heralded_g2_page.py,
-            state_tomography_page.py   # still placeholders — TODO in each file
+        ├── settings_page.py      # hardware configuration and controls
+        ├── counts_page.py        # live acquisition + Bell scan UI
+        ├── polytope_page.py      # placeholder
+        ├── heralded_g2_page.py   # placeholder
+        └── state_tomography_page.py # placeholder
 ```
 
-## Why this split
+## Core / hardware boundary
 
-- **`core/` has zero Qt and zero hardware-SDK imports.** Everything in it
-  can be tested headlessly, which is why `tests/` covers `bell_math`,
-  `data_model`, `controller`, and `export` without needing a display or a
-  TimeTagger.
-- **`hardware/base.py`** is a `Protocol`, not a base class — `TimeTaggerAdapter`
-  and `SimulatorAdapter` don't inherit from anything, they just implement
-  the same method set. `MeasurementController` only ever talks to that
-  shape, so swapping hardware for the simulator (or vice versa) is a
-  one-line change in `qozy/app.py`.
-- **`gui/worker.py`** exists because `old_spdc_to_port/spdc/main.py` polled
-  data straight from a `QTimer` on the GUI thread. That's fine for a
-  synthetic demo; it stalls the UI once real Coincidence/Correlation
-  measurements are involved. The worker+thread pattern here is the fix,
-  and the offscreen smoke test in the port PR caught a real cross-thread
-  `QTimer` bug in the first draft of `_stop()` — see the comments in
-  `worker.py` and `counts_page.py` if touching that code again.
+`core/` has no Qt imports and no vendor-SDK imports. It receives small
+interfaces instead of concrete devices.
 
-## What's real vs. placeholder right now
+`hardware/base.py` defines two protocols:
 
-| Page | Status |
+- `MeasurementAdapter` for photon-counting/time-tagging measurements.
+- `PositionerAdapter` for polarization stages (`connect`, `disconnect`,
+  `home`, `get_angle`, `set_angle`).
+
+`MeasurementController` only consumes `MeasurementAdapter`. `BellScanController`
+consumes one `MeasurementAdapter` plus Alice and Bob `PositionerAdapter`s.
+This keeps both workflows testable with the simulator implementations.
+
+## HardwareManager
+
+`hardware/manager.py` is the central owner of connected hardware and contains
+no Qt code. It maintains:
+
+```text
+HardwareManager
+├── acquisition
+│   ├── SimulatorAdapter
+│   ├── LocalTimeTagger
+│   └── NetworkTimeTagger
+└── polarization stages
+    ├── Alice → SimulatorStage or ElliptecAdapter
+    └── Bob   → SimulatorStage or ElliptecAdapter
+```
+
+The default state is a connected simulator acquisition backend and two
+connected simulator stages. A stage can be reconfigured only after it has
+been disconnected.
+
+For Elliptec, each stage stores a serial port and a single device/bus address.
+The adapter supports either separate serial controllers or multiple rotators
+sharing one controller/port, because the underlying constructor receives both
+`port` and `address`.
+
+## GUI threading rule
+
+Potentially blocking vendor operations must not run on the Qt GUI thread.
+Settings therefore delegates acquisition connection/disconnection to
+`HardwareWorker` and stage connect/disconnect/move/home/position reads to
+`StageWorker`. Live acquisition uses `AcquisitionWorker`; the Bell scan uses
+`ScanWorker`.
+
+Workers are one-shot or long-running background jobs owned by `QThread`. The
+GUI does not call `QThread.wait()` during normal stop handling. Live acquisition
+uses a thread-safe `threading.Event` stop request so the worker can leave its
+loop without relying on a queued Qt callback being processed by a busy worker
+thread.
+
+## Settings page
+
+Settings is the hardware/configuration page rather than an experiment page.
+It currently contains:
+
+### Acquisition
+
+- backend: Simulator, Time Tagger (local), or Time Tagger (network)
+- network server address for the network backend
+- connect/disconnect
+- connection status
+- export-directory field (configuration field only; export wiring is still
+  incomplete)
+
+### Polarization stages
+
+Alice and Bob each have:
+
+- backend: Simulator or Elliptec
+- serial port
+- Elliptec device/bus address
+- connection status
+- current angle
+- target angle
+- Connect/Disconnect
+- Move
+- Home
+- Refresh position
+
+The simulator makes all of these controls usable without hardware and is
+covered by GUI smoke tests.
+
+## Counts page and Bell scan
+
+Live acquisition and the Bell scan are separate operations because both use
+the coincidence measurement backend and the scan additionally needs exclusive
+control of both polarization stages.
+
+`MeasurementController` handles the ordinary start/poll/stop lifecycle.
+`AcquisitionWorker` keeps that lifecycle on its worker thread and periodically
+emits the resulting `MeasurementState` to the GUI.
+
+`BellScanController` performs the actual 4×4 scan:
+
+1. Configure coincidence measurement.
+2. For each Alice Bell angle, move Alice.
+3. For each Bob Bell angle, move Bob.
+4. Integrate for the configured interval.
+5. Record one matrix cell.
+6. Repeat all 16 settings.
+7. Evaluate E/S from the completed matrix.
+
+`ScanWorker` emits each completed cell so the Counts table can update during
+the scan rather than waiting for the final result.
+
+The simulator has a small angle-dependent coincidence model so the Bell scan
+is useful for development and produces a non-flat example matrix.
+
+## Themes
+
+`gui/theme.py` defines four named presets in `THEME_ORDER`:
+
+```text
+classic-light → classic-dark → soft-dark → soft-light
+```
+
+Each preset has its own semantic palette and also tunes visual parameters such
+as page-title size, heading weight, button weight, control height, navigation
+height, and corner radii. The sidebar button displays the current and next
+preset and cycles through the four themes.
+
+`light` and `dark` remain compatibility aliases for existing startup callers;
+they are not part of the four-theme cycle.
+
+## What is implemented vs. placeholder
+
+| Area | Status |
 |---|---|
-| Counts | **Real** — wired to `MeasurementController` + `SimulatorAdapter`, live VisPy plot, start/stop, live Bell E/S summary + coincidence matrix table |
-| Settings | Placeholder (backend/export-dir picker not wired yet) |
-| Polytope | Placeholder — no equivalent in the old code to port |
-| Heralded g2 | Placeholder — no equivalent in the old code to port |
-| State tomography | Placeholder — no equivalent in the old code to port |
+| Counts | **Implemented** — live acquisition UI, VisPy plot, start/stop, Bell scan, 4×4 matrix, E/S summary |
+| Settings | **Implemented** — acquisition backend controls, Alice/Bob stage configuration and motion controls |
+| Time Tagger local | **Implemented** — adapter plus local backend selection |
+| Time Tagger network | **Implemented** — single `host:port` server address |
+| Elliptec | **Implemented** — adapter and Settings-stage controls |
+| Simulator | **Implemented** — measurement backend and polarization stages |
+| Polytope | Placeholder |
+| Heralded g2 | Placeholder |
+| State tomography | Placeholder |
+| Measurement export | Core helper exists; GUI Save workflow is not yet wired |
 
-Bell E/S calculation (`core/bell_math.py`) is ported, tested, and now live:
-`MeasurementController.poll()` checks whether the current adapter exposes an
-(optional, non-`Protocol`) `get_coincidence_matrix()` method — `SimulatorAdapter`
-does, as a demo stand-in — and if so recomputes E/S every poll tick. The
-Counts page shows the resulting 4x4 matrix and E/S values live. A real
-hardware adapter that doesn't implement `get_coincidence_matrix()` simply
-leaves the Bell summary showing "not available for this adapter" — see the
-caveat below.
+## Time Tagger dependency
 
-`core/export.py` is ported and tested but not yet wired to a "Save" button
-in the GUI.
+The Swabian Instruments SDK is imported lazily by `TimeTaggerAdapter`, so
+simulator-only development and CI do not require the vendor SDK. The normal
+runtime dependency set includes `elliptec`; the optional hardware extra is
+reserved for the TimeTagger SDK.
 
-## Known debt carried over from the old code, not yet resolved
+The network backend currently accepts one server address and calls the SDK's
+network factory with a one-element address list. The adapter shape can be
+extended to multiple synchronized servers later without changing the core
+measurement interface.
 
-- `old_spdc_to_port/spdc/bellvalue.py::bell_matrix()` was dead/broken in
-  the original (references undefined `data`/`B_detector_angles`) and was
-  **not** ported. `plot()`'s matplotlib rendering also wasn't ported —
-  only the math (`calc_e_s`) was pulled out, per plan.md's "no GUI/plotting
-  code in the calculation layer."
-- `old_spdc_to_port/spdc/savedata.py` hardcoded `/home/sci/qkd/data` as
-  the save path. `core/export.py` makes this a parameter
-  (`DEFAULT_BASE_DIR = ~/qozy_data`); the Settings page still needs a field
-  to actually change it at runtime.
+## Testing and CI
 
-## Recommended next steps (plan.md phases 2 onward)
+The test suite covers the core math/data/controller/export code without a
+display, plus PyQt6 smoke tests for the main window, live acquisition start/stop,
+Bell scan, simulator stage controls, and four-theme cycling.
 
-1. Wire `export.save_measurement()` to a "Save" button on the Counts page.
-2. Give `TimeTaggerAdapter` a real `get_coincidence_matrix()` (or decide
-   the live Bell summary is simulator-only, and real Bell evaluation
-   happens via an explicit angle-scan sequence + `controller.evaluate_bell()`
-   called once at the end of a scan instead of every poll tick).
-3. Swap `SimulatorAdapter` for `TimeTaggerAdapter` in `qozy/app.py` once
-   hardware is available, and test against real correlation/coincidence
-   timing.
-4. Decide whether Polytope / Heralded g2 / State tomography get real
-   measurement logic or get cut from the shell — nothing in
-   `old_spdc_to_port` covers them, so it's an open question, not a
-   forgotten port.
+For GUI tests, `tests/conftest.py` sets `QT_QPA_PLATFORM=offscreen`. CI installs
+the Qt/OpenGL system libraries needed by the offscreen PyQt6 platform, then
+runs:
 
-## CI
+```bash
+uv run ruff check .
+uv run pytest -q
+```
 
-Both `.gitlab-ci.yml` (source of truth) and `.github/workflows/ci.yml`
-(mirror) run `uv sync --extra dev`, then `ruff check .`, then
-`pytest` with `QT_QPA_PLATFORM=offscreen` so the GUI smoke tests
-(`tests/test_gui_smoke.py`) can build real `QMainWindow`/`QWidget`
-instances without a display. Both install `libegl1 libxkbcommon0
-libxcb-cursor0 libgl1` first — PyQt6's offscreen platform plugin needs
-them and they aren't in the slim/default runner images.
+The GitLab and GitHub CI definitions are kept aligned.
 
-## Known caveat with the live Bell summary
+## Remaining design work
 
-`SimulatorAdapter.get_coincidence_matrix()` is a demo convenience, not
-part of `MeasurementAdapter` — it's not what a real Bell measurement looks
-like. The actual experiment scans four polarization angles over time and
-builds the 4x4 matrix from that scan (see `bellvalue.py`'s original
-`bell_angles_for_bob` logic); a live single-poll readout doesn't have that
-information yet. Treat the Counts page's E/S display as "how it'll look
-once real data is available," not as physically meaningful with real
-hardware until `TimeTaggerAdapter` grows the equivalent of that scan.
+The next significant hardware integration step is to have experiment code
+consume the `HardwareManager`'s real Alice/Bob stages directly rather than
+constructing simulator stages locally. That will let a real Bell scan use the
+Elliptec devices configured in Settings while preserving the same
+`BellScanController` interface.
 
-## Bell angle scan (real, not simulator-only)
-
-`core/scan_controller.py::BellScanController` runs an actual 4x4
-polarization-angle scan: move Alice's and Bob's stages to each of the four
-`BELL_ANGLES_DEG` settings, integrate coincidences for a fixed time,
-record the count, repeat for all 16 combinations, then `calc_e_s()` on the
-result. `gui/scan_worker.py` runs it on its own `QThread` and the Counts
-page's "Run Bell scan" button drives it, filling the coincidence table in
-live via `cell_done` and showing E/S once `finished` fires.
-
-Stages are anything implementing `hardware/base.py::PositionerAdapter`
-(`connect`, `disconnect`, `home`, `get_angle`, `set_angle`):
-- `hardware/elliptec_adapter.py::ElliptecAdapter` — real Thorlabs Elliptec
-  rotators, via the `elliptec` PyPI package. `Rotator.set_angle()`/`.home()`
-  block until the device's serial response confirms the move, so there's
-  no separate settle-wait step needed.
-- `hardware/simulator.py::SimulatorStage` — in-memory stand-in, and
-  `SimulatorAdapter.set_angle_context()` (duck-typed, not part of
-  `MeasurementAdapter`) makes the simulator's coincidence counts vary with
-  the current angles so a simulated scan shows a believable CHSH violation.
-
-This replaces the old poll-tick `get_coincidence_matrix()` stand-in
-entirely — live acquisition (Start/Stop) and the Bell scan are now
-separate, mutually-exclusive actions on the Counts page, since both need
-exclusive use of the coincidence adapter.
-
-**Not yet done:** `qozy/app.py` still only ever constructs
-`SimulatorAdapter`/`SimulatorStage` — wiring real `TimeTaggerAdapter` +
-two `ElliptecAdapter`s (with real ports/addresses, presumably from the
-Settings page) into `qozy/app.py` and `CountsPage` is the next step
-before this can run against actual hardware. Also worth deciding: two
-serial ports (one Elliptec controller per stage) or one shared port with
-two addresses — `ElliptecAdapter` supports either, it just takes whatever
-`port`/`address` it's given.
+After that, the main open work is experiment-specific measurement logic for
+Polytope, Heralded g2, and state tomography, plus a proper GUI export/save
+workflow.
