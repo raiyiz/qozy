@@ -64,6 +64,7 @@ class MainWindow(QMainWindow):
         main.addWidget(self.pages, 1)
 
         self.settings_page.adapter_ready.connect(self.counts_page.set_adapter)
+        self.settings_page.connection_changed.connect(self.counts_page.set_hardware_connected)
         self.counts_page.acquisition_changed.connect(self.settings_page.set_busy)
 
         self.setCentralWidget(root)
