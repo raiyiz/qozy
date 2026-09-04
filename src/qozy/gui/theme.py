@@ -23,53 +23,53 @@ CLASSIC_DARK = {
     "surface": "#121820",
     "surface_alt": "#1A222C",
     "surface_hover": "#202A34",
-    "input": "#10161D",
+    "input": "#121820",
     "border": "#283442",
-    "border_subtle": "#1E2730",
+    "border_subtle": "#202A33",
     "text": "#F2F4F7",
     "muted": "#98A2B3",
     "placeholder": "#6F7A86",
     "primary": "#4F8CFF",
-    "primary_hover": "#5E97FF",
-    "primary_pressed": "#3D7AF0",
-    "selection": "#253454",
+    "primary_hover": "#3D7AF0",
+    "primary_pressed": "#3769CF",
+    "selection": "#24324F",
     "disabled": "#5E6874",
-}
-
-SOFT_LIGHT = {
-    "bg": "#F7F8FA",
-    "surface": "#FFFFFF",
-    "surface_alt": "#F2F4F7",
-    "surface_hover": "#EEF1F4",
-    "input": "#FCFCFD",
-    "border": "#D9DEE7",
-    "border_subtle": "#E8EBF0",
-    "text": "#1B2430",
-    "muted": "#667085",
-    "placeholder": "#98A2B3",
-    "primary": "#3B6FF5",
-    "primary_hover": "#315ED6",
-    "primary_pressed": "#294FB4",
-    "selection": "#E4EBFF",
-    "disabled": "#A7AFBC",
 }
 
 SOFT_DARK = {
-    "bg": "#0E1217",
-    "surface": "#141A21",
-    "surface_alt": "#1A222B",
-    "surface_hover": "#202A34",
-    "input": "#11171D",
-    "border": "#2A3541",
-    "border_subtle": "#202A33",
-    "text": "#E7EBF0",
-    "muted": "#9AA5B1",
-    "placeholder": "#6F7A86",
-    "primary": "#6C92F7",
-    "primary_hover": "#7BA0FF",
-    "primary_pressed": "#587EDC",
-    "selection": "#25345A",
-    "disabled": "#5E6874",
+    "bg": "#101419",
+    "surface": "#171C22",
+    "surface_alt": "#1D232B",
+    "surface_hover": "#252C35",
+    "input": "#14191F",
+    "border": "#303943",
+    "border_subtle": "#252C34",
+    "text": "#E8EBEF",
+    "muted": "#9AA3AD",
+    "placeholder": "#737D88",
+    "primary": "#7699E8",
+    "primary_hover": "#86A7F0",
+    "primary_pressed": "#6283CF",
+    "selection": "#28344A",
+    "disabled": "#626C77",
+}
+
+SOFT_LIGHT = {
+    "bg": "#FAFAF8",
+    "surface": "#FFFFFF",
+    "surface_alt": "#F4F4F1",
+    "surface_hover": "#ECEDE9",
+    "input": "#FEFEFD",
+    "border": "#DDDCD5",
+    "border_subtle": "#ECECE7",
+    "text": "#242721",
+    "muted": "#74786F",
+    "placeholder": "#A2A59E",
+    "primary": "#5F78B8",
+    "primary_hover": "#526AA7",
+    "primary_pressed": "#465B91",
+    "selection": "#E8EDF6",
+    "disabled": "#A5A9A1",
 }
 
 THEMES = {
@@ -78,6 +78,10 @@ THEMES = {
     "soft-dark": ("Soft Dark", SOFT_DARK),
     "soft-light": ("Soft Light", SOFT_LIGHT),
 }
+
+# Backward-compatible aliases for startup code and existing callers.
+THEMES["light"] = THEMES["classic-light"]
+THEMES["dark"] = THEMES["classic-dark"]
 
 
 def stylesheet(c):
