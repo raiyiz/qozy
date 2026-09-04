@@ -1,11 +1,4 @@
-"""Offscreen smoke tests for the PyQt6 shell.
-
-These don't assert on pixels — they build the real window, drive the
-Counts page's start/stop cycle against the simulator, and pump the Qt
-event loop, which is enough to catch wiring bugs like the cross-thread
-QTimer bug this caught during development (see comments in
-qozy/gui/worker.py and qozy/gui/pages/counts_page.py).
-"""
+"""Offscreen smoke tests for the PyQt6 shell."""
 
 from __future__ import annotations
 
@@ -13,6 +6,13 @@ import time
 
 from qozy.gui.main_window import MainWindow
 from qozy.gui.theme import apply_theme
+
+
+def _pump(qapp, duration_s: float = 0.5) -> None:
+    deadline = time.monotonic() + duration_s
+    while time.monotonic() < deadline:
+        qapp.processEvents()
+        time.sleep(0.01)
 
 
 def test_main_window_builds_all_pages(qapp) -> None:
@@ -28,15 +28,38 @@ def test_counts_page_start_stop_cycle_updates_bell_summary(qapp) -> None:
     counts_page = window.pages.widget(2)
 
     counts_page._start()
-    for _ in range(5):
-        qapp.processEvents()
-        time.sleep(0.05)
-    qapp.processEvents()
+    _pump(qapp, 0.25)
+    assert counts_page._worker is not None
+    assert counts_page.live_checkbox.isChecked()
 
     counts_page._stop()
-    qapp.processEvents()
+    _pump(qapp, 0.25)
 
+    assert counts_page._worker is None
+    assert counts_page._thread is None
     assert counts_page.status_label.text() == "Stopped"
+    assert counts_page.start_button.isEnabled()
+
+
+def test_counts_page_remains_responsive_during_acquisition(qapp) -> None:
+    window = MainWindow(qapp)
+    counts_page = window.pages.widget(1)
+
+    counts_page._start()
+    states = []
+    for _ in range(10):
+        qapp.processEvents()
+        states.append(counts_page.status_label.text())
+        time.sleep(0.02)
+
+    assert counts_page._worker is not None
+    assert counts_page.status_label.text().startswith("Acquiring")
+    assert any(state.startswith("Acquiring") for state in states)
+
+    counts_page._stop()
+    _pump(qapp, 0.25)
+
+    assert counts_page._worker is None
 
 
 def test_counts_page_bell_scan_updates_summary(qapp) -> None:
