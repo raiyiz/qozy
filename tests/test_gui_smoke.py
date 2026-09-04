@@ -77,3 +77,27 @@ def test_counts_page_bell_scan_updates_summary(qapp) -> None:
 
     assert counts_page.status_label.text() == "Scan complete"
     assert counts_page.bell_e_label.text() != "E: —"
+
+
+def test_settings_page_controls_simulator_polarization_stages(qapp) -> None:
+    window = MainWindow(qapp)
+    settings_page = window.pages.widget(4)
+
+    alice = settings_page._stage_widgets["alice"]
+    alice_target = alice["target"]
+    alice_target.setText("22.5")
+    settings_page._move_stage("alice")
+    _pump(qapp, 0.25)
+
+    assert alice["angle"].text() == "22.50°"
+    assert alice["status"].text() == "Connected"
+
+    settings_page._toggle_stage_connection("alice")
+    _pump(qapp, 0.25)
+    assert alice["status"].text() == "Disconnected"
+    assert alice["connect"].text() == "Connect"
+
+    settings_page._toggle_stage_connection("alice")
+    _pump(qapp, 0.25)
+    assert alice["status"].text() == "Connected"
+    assert alice["connect"].text() == "Disconnect"
