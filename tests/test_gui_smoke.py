@@ -54,7 +54,7 @@ def test_counts_page_start_stop_cycle_updates_bell_summary(qapp) -> None:
 
 def test_counts_page_remains_responsive_during_acquisition(qapp) -> None:
     window = MainWindow(qapp)
-    counts_page = window.pages.widget(1)
+    counts_page = window.pages.widget(2)
 
     counts_page._start()
     states = []
@@ -90,28 +90,52 @@ def test_counts_page_bell_scan_updates_summary(qapp) -> None:
     assert counts_page.bell_e_label.text() != "E: —"
 
 
-def test_settings_page_controls_simulator_polarization_stages(qapp) -> None:
+def test_polarization_page_controls_simulator_polarization_stages(qapp) -> None:
     window = MainWindow(qapp)
-    settings_page = window.pages.widget(0)
+    polarization_page = window.pages.widget(1)
 
-    alice = settings_page._stage_widgets["alice"]
+    alice = polarization_page._stage_widgets["alice"]
     alice_target = alice["target"]
     alice_target.setText("22.5")
-    settings_page._move_stage("alice")
+    polarization_page._move_stage("alice")
     _pump(qapp, 0.25)
 
     assert alice["angle"].text() == "22.50°"
     assert alice["status"].text() == "Connected"
 
-    settings_page._toggle_stage_connection("alice")
+    polarization_page._toggle_stage_connection("alice")
     _pump(qapp, 0.25)
     assert alice["status"].text() == "Disconnected"
     assert alice["connect"].text() == "Connect"
 
-    settings_page._toggle_stage_connection("alice")
+    polarization_page._toggle_stage_connection("alice")
     _pump(qapp, 0.25)
     assert alice["status"].text() == "Connected"
     assert alice["connect"].text() == "Disconnect"
+
+
+def test_polarization_page_bell_angle_preset_moves_stage(qapp) -> None:
+    window = MainWindow(qapp)
+    polarization_page = window.pages.widget(1)
+    bob = polarization_page._stage_widgets["bob"]
+
+    button = next(b for b in bob["presets"] if b.text() == "67.5°")
+    button.click()
+    _pump(qapp, 0.25)
+
+    assert bob["angle"].text() == "67.50°"
+    assert bob["target"].text() == "67.50"
+
+
+def test_polarization_page_presets_disabled_while_disconnected(qapp) -> None:
+    window = MainWindow(qapp)
+    polarization_page = window.pages.widget(1)
+    alice = polarization_page._stage_widgets["alice"]
+
+    polarization_page._toggle_stage_connection("alice")
+    _pump(qapp, 0.25)
+    assert alice["status"].text() == "Disconnected"
+    assert all(not button.isEnabled() for button in alice["presets"])
 
 
 def test_settings_page_network_backend_field_and_validation(qapp) -> None:
@@ -137,3 +161,23 @@ def test_settings_page_network_backend_field_and_validation(qapp) -> None:
     assert settings_page.status_label.text() == "Error: enter a network server address"
     assert not settings_page.hardware.connected
     assert settings_page.connect_button.text() == "Connect"
+
+
+def test_main_window_persists_config_across_restarts(qapp, tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr("qozy.core.app_config.DEFAULT_CONFIG_PATH", tmp_path / "config.json")
+
+    window = MainWindow(qapp)
+    counts_page = window.pages.widget(2)
+    counts_page.alice_edit.setText("5, 6")
+    settings_page = window.pages.widget(0)
+    settings_page.export_dir.setText("/tmp/qozy_export")
+    polarization_page = window.pages.widget(1)
+    polarization_page._stage_widgets["alice"]["address"].setText("2")
+
+    window.close()
+    assert (tmp_path / "config.json").exists()
+
+    window2 = MainWindow(qapp)
+    assert window2.pages.widget(2).alice_edit.text() == "5, 6"
+    assert window2.pages.widget(0).export_dir.text() == "/tmp/qozy_export"
+    assert window2.pages.widget(1)._stage_widgets["alice"]["address"].text() == "2"

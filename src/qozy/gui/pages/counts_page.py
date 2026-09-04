@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from qozy.core.app_config import AppConfig
 from qozy.core.bell_math import POLARIZATION_LABELS
 from qozy.core.controller import MeasurementController
 from qozy.core.data_model import ChannelConfig, MeasurementConfig, MeasurementState
@@ -48,9 +49,11 @@ class CountsPage(QWidget):
         self,
         hardware: HardwareManager | None = None,
         controller: MeasurementController | None = None,
+        initial: AppConfig | None = None,
     ) -> None:
         super().__init__()
         self.hardware = hardware
+        self._initial = initial or AppConfig()
         if controller is not None:
             self.controller = controller
         elif hardware is not None:
@@ -119,6 +122,11 @@ class CountsPage(QWidget):
         self.controller.config.correlation_time_frame_ns = settings.correlation_time_frame_ns
         self.controller._configured = False
 
+    def export_config(self, config: AppConfig) -> None:
+        """Copy the current widget selections into ``config`` for saving."""
+        config.alice_channels = self.alice_edit.text().strip() or config.alice_channels
+        config.bob_channels = self.bob_edit.text().strip() or config.bob_channels
+
     def set_adapter(self, adapter: MeasurementAdapter) -> None:
         if self._worker is not None:
             raise RuntimeError("Cannot replace the adapter during live acquisition")
@@ -141,8 +149,8 @@ class CountsPage(QWidget):
         form.setContentsMargins(20, 20, 20, 20)
         form.setSpacing(12)
 
-        self.alice_edit = QLineEdit("1, 2")
-        self.bob_edit = QLineEdit("3, 4")
+        self.alice_edit = QLineEdit(self._initial.alice_channels)
+        self.bob_edit = QLineEdit(self._initial.bob_channels)
         form.addRow("Alice channels", self.alice_edit)
         form.addRow("Bob channels", self.bob_edit)
 

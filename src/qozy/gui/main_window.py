@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from PyQt6.QtGui import QIcon
+from PyQt6.QtGui import QCloseEvent, QIcon
 from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -12,10 +12,12 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from qozy.core.app_config import AppConfig, load_config, save_config
 from qozy.gui.components import NavButton
 from qozy.gui.pages import (
     CountsPage,
     HeraldedG2Page,
+    PolarizationPage,
     PolytopePage,
     SettingsPage,
     StateTomographyPage,
@@ -34,6 +36,7 @@ class MainWindow(QMainWindow):
         self.theme_index = 0
         self.mode = self.theme_modes[self.theme_index]
         self.hardware = HardwareManager()
+        self.config = load_config()
 
         icon_path = Path(__file__).resolve().parent / "icons" / "logo.png"
         if icon_path.exists():
@@ -69,6 +72,7 @@ class MainWindow(QMainWindow):
         self.settings_page.adapter_ready.connect(self.counts_page.set_adapter)
         self.settings_page.connection_changed.connect(self.counts_page.set_hardware_connected)
         self.counts_page.acquisition_changed.connect(self.settings_page.set_busy)
+        self.counts_page.acquisition_changed.connect(self.polarization_page.set_busy)
 
         self.setCentralWidget(root)
         apply_theme(self.app, self.mode)
@@ -129,3 +133,18 @@ class MainWindow(QMainWindow):
         next_index = (self.theme_index + 1) % len(self.theme_modes)
         next_label, _ = THEMES[self.theme_modes[next_index]]
         self.theme_button.setText(f"{label}  →  {next_label}")
+
+    def current_config(self) -> AppConfig:
+        """Gather the current Settings/Polarization/Counts field values."""
+        config = AppConfig()
+        self.settings_page.export_config(config)
+        self.polarization_page.export_config(config)
+        self.counts_page.export_config(config)
+        return config
+
+    def save_config(self) -> None:
+        save_config(self.current_config())
+
+    def closeEvent(self, event: QCloseEvent) -> None:
+        self.save_config()
+        super().closeEvent(event)

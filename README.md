@@ -14,9 +14,10 @@ This creates `.venv/` and installs QOZY plus the development tools
 (`pytest`, `pytest-qt`, and `ruff`) from `uv.lock`. Plain
 `pip install -e ".[dev]"` also works if you prefer pip.
 
-The `elliptec` package is a normal runtime dependency because the Settings
-page supports real Thorlabs Elliptec stages. The Swabian Instruments
-TimeTagger SDK remains optional for simulator-only development and CI.
+The `elliptec` package is a normal runtime dependency because the
+Polarization page supports real Thorlabs Elliptec stages. The Swabian
+Instruments TimeTagger SDK remains optional for simulator-only development
+and CI.
 
 ## Run
 
@@ -29,24 +30,41 @@ uv run python -m qozy.app
 QOZY starts with the simulator connected by default, so the application and
 GUI can be exercised without hardware.
 
-The **Settings** page provides independent configuration for the acquisition
-backend and the Alice/Bob polarization stages. Acquisition supports:
+The **Settings** page configures the acquisition backend and export
+directory:
 
 - Simulator
 - Time Tagger (local USB)
 - Time Tagger (network, using a `host:port` server address)
 
-Each polarization stage supports:
+The **Polarization** page configures and moves the Alice and Bob stages
+used by the Counts page's Bell scan. Each stage supports:
 
 - Simulator
 - Elliptec, with serial port and device/bus address
 - Connect / disconnect
-- Move to an absolute angle
+- Move to an absolute angle, or one tap on a Bell-angle preset
+  (0°, 22.5°, 67.5°, 112.5°, 157.5° — the same settings `BellScanController`
+  scans through)
 - Home
 - Read the current angle
 
 Hardware connection and motion calls are performed on background Qt worker
 threads so vendor-library calls do not run on the GUI thread.
+
+## Settings persistence
+
+Settings, Polarization, and Counts field values (acquisition backend and
+network address, export directory, each stage's backend/port/address, and
+the Alice/Bob detector channels) are saved to `~/.qozy/config.json` when the
+window closes, and reloaded to pre-fill those same fields the next time QOZY
+starts. Only the *selections* persist, never live connection state — QOZY always
+starts with the simulator connected (acquisition and both stages), and
+switching to a real backend still needs its Connect button pressed, so a
+stale saved address can never cause an unattended connection attempt to
+real hardware.
+A missing or corrupt config file is treated like a first run rather than an
+error.
 
 ## Themes
 
@@ -83,8 +101,9 @@ GUI smoke tests use `QT_QPA_PLATFORM=offscreen` (configured in
 `tests/conftest.py`), so the PyQt6 shell can be exercised without a display.
 The suite also covers Time Tagger backend behavior (including the network
 backend and the connect/disconnect reconfiguration guard), simulator
-polarization stages, Settings acquisition and stage controls, and the
-four-theme cycling behavior.
+polarization stages and Bell-angle presets on the Polarization page,
+Settings acquisition controls, config persistence across a simulated
+restart, and the four-theme cycling behavior.
 
 ## Lint
 

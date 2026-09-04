@@ -12,7 +12,8 @@ src/qozy/
 │   ├── data_model.py             # measurement configuration/state dataclasses
 │   ├── controller.py             # MeasurementController
 │   ├── scan_controller.py        # hardware-independent 4×4 Bell angle scan
-│   └── export.py                 # measurement export helpers
+│   ├── export.py                 # measurement export helpers
+│   └── app_config.py             # persisted "last used" GUI field values
 ├── hardware/
 │   ├── base.py                   # MeasurementAdapter + PositionerAdapter protocols
 │   ├── manager.py                # process-wide acquisition/stage ownership
@@ -24,13 +25,14 @@ src/qozy/
 └── gui/
     ├── theme.py                  # four QOZY visual presets
     ├── components.py             # reusable Qt widgets
-    ├── main_window.py            # sidebar + page stack + theme cycling
+    ├── main_window.py            # sidebar + page stack + theme cycling + config load/save
     ├── hardware_worker.py        # background connection/stage operations
     ├── worker.py                 # background live acquisition
     ├── scan_worker.py            # background Bell scan
     ├── plot_panel.py             # VisPy live plotting
     └── pages/
-        ├── settings_page.py      # hardware configuration and controls
+        ├── settings_page.py      # acquisition backend configuration and controls
+        ├── polarization_page.py  # Alice/Bob stage configuration, motion, Bell-angle presets
         ├── counts_page.py        # live acquisition + Bell scan UI
         ├── polytope_page.py      # placeholder
         ├── heralded_g2_page.py   # placeholder
@@ -81,9 +83,9 @@ sharing one controller/port, because the underlying constructor receives both
 
 Potentially blocking vendor operations must not run on the Qt GUI thread.
 Settings therefore delegates acquisition connection/disconnection to
-`HardwareWorker` and stage connect/disconnect/move/home/position reads to
-`StageWorker`. Live acquisition uses `AcquisitionWorker`; the Bell scan uses
-`ScanWorker`.
+`HardwareWorker`, and Polarization delegates stage connect/disconnect/
+move/home/position reads to `StageWorker`. Live acquisition uses
+`AcquisitionWorker`; the Bell scan uses `ScanWorker`.
 
 Workers are one-shot or long-running background jobs owned by `QThread`. The
 GUI does not call `QThread.wait()` during normal stop handling. Live acquisition
@@ -93,10 +95,7 @@ thread.
 
 ## Settings page
 
-Settings is the hardware/configuration page rather than an experiment page.
-It currently contains:
-
-### Acquisition
+Settings is the acquisition-backend/configuration page. It contains:
 
 - backend: Simulator, Time Tagger (local), or Time Tagger (network)
 - network server address for the network backend
@@ -105,9 +104,10 @@ It currently contains:
 - export-directory field (configuration field only; export wiring is still
   incomplete)
 
-### Polarization stages
+## Polarization page
 
-Alice and Bob each have:
+Polarization owns Alice/Bob stage configuration and motion, separately from
+Settings, so each has room for its own controls. Alice and Bob each have:
 
 - backend: Simulator or Elliptec
 - serial port
@@ -116,12 +116,44 @@ Alice and Bob each have:
 - current angle
 - target angle
 - Connect/Disconnect
-- Move
+- Move (to the typed target angle)
+- Bell-angle presets — one-tap buttons for 0°, 22.5°, 67.5°, 112.5°, and
+  157.5° (`qozy.core.bell_math.BELL_ANGLES_DEG` plus 0° as a neutral
+  reference), the same settings `BellScanController` steps through, so lining
+  a stage up by hand for a manual check doesn't require typing and
+  confirming an angle
 - Home
 - Refresh position
 
-The simulator makes all of these controls usable without hardware and is
-covered by GUI smoke tests.
+Every stage control (including the presets) is disabled while its stage is
+disconnected or mid-operation, and `PolarizationPage.set_busy()` freezes both
+stages during acquisition/Bell scan the same way `SettingsPage.set_busy()`
+freezes the acquisition backend controls. The simulator makes all of these
+controls usable without hardware and is covered by GUI smoke tests.
+
+## Persisted configuration (`core/app_config.py`)
+
+`AppConfig` is a plain, Qt-free dataclass holding the GUI field values a user
+actually edits: acquisition backend + network address, export directory,
+each stage's backend/port/address, and the Alice/Bob detector channels.
+`load_config()`/`save_config()` read/write it as JSON at `~/.qozy/config.json`
+(`DEFAULT_CONFIG_PATH`, overridable per call for testing).
+
+`MainWindow` loads the config once at startup and passes it to `SettingsPage`,
+`PolarizationPage`, and `CountsPage` as `initial=...` so each page pre-fills
+its own widgets from it. Each of those pages implements
+`export_config(config)`, which copies its current widget values back onto a
+shared `AppConfig`; `MainWindow.closeEvent()` gathers all three and writes
+them out.
+
+Only *selections* persist, deliberately never live connection state:
+`HardwareManager` always starts with the simulator connected (acquisition
+and both stages) regardless of what backend was last selected, so a stale
+saved network address or serial port can never cause an unattended
+connection attempt to real hardware on startup — the user still presses
+Connect. `load_config()` falls back to `AppConfig()` defaults on a missing,
+corrupt, or unexpectedly-shaped file rather than raising, so a bad config
+file can never stop QOZY from starting.
 
 ## Counts page and Bell scan
 
@@ -170,11 +202,13 @@ they are not part of the four-theme cycle.
 | Area | Status |
 |---|---|
 | Counts | **Implemented** — live acquisition UI, VisPy plot, start/stop, Bell scan, 4×4 matrix, E/S summary |
-| Settings | **Implemented** — acquisition backend controls, Alice/Bob stage configuration and motion controls |
+| Settings | **Implemented** — acquisition backend controls |
+| Polarization | **Implemented** — Alice/Bob stage configuration, motion controls, Bell-angle presets |
 | Time Tagger local | **Implemented** — adapter plus local backend selection |
 | Time Tagger network | **Implemented** — single `host:port` server address |
-| Elliptec | **Implemented** — adapter and Settings-stage controls |
+| Elliptec | **Implemented** — adapter and Polarization-page controls |
 | Simulator | **Implemented** — measurement backend and polarization stages |
+| Config persistence | **Implemented** — Settings/Polarization/Counts field values saved on close, reloaded on startup |
 | Polytope | Placeholder |
 | Heralded g2 | Placeholder |
 | State tomography | Placeholder |
@@ -194,14 +228,17 @@ measurement interface.
 
 ## Testing and CI
 
-The test suite covers the core math/data/controller/export code without a
-display, plus PyQt6 smoke tests for the main window, live acquisition start/stop,
-Bell scan, simulator stage controls, four-theme cycling, and the Settings
-network-backend field enabling/validation. Time Tagger backend tests cover
-both the local/network adapter factory calls (with the vendor SDK mocked)
-and `HardwareManager`'s reconnection guard, which requires the current
-backend to be disconnected before `select()` can change it — the same rule
-already enforced for the Alice/Bob stage backends.
+The test suite covers the core math/data/controller/export/app_config code
+without a display, plus PyQt6 smoke tests for the main window, live
+acquisition start/stop, Bell scan, Polarization-page stage controls and
+Bell-angle presets, four-theme cycling, the Settings network-backend field
+enabling/validation, and config persistence across a simulated restart
+(`MainWindow` closed and rebuilt against a temp config path). Time Tagger
+backend tests cover both the local/network adapter factory calls (with the
+vendor SDK mocked) and `HardwareManager`'s reconnection guard, which
+requires the current backend to be disconnected before `select()` can
+change it — the same rule already enforced for the Alice/Bob stage
+backends.
 
 For GUI tests, `tests/conftest.py` sets `QT_QPA_PLATFORM=offscreen`. CI installs
 the Qt/OpenGL system libraries needed by the offscreen PyQt6 platform, then
