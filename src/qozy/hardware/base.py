@@ -22,7 +22,9 @@ class MeasurementAdapter(Protocol):
 
     def setup_sm(self) -> None: ...
 
-    def setup_channel(self, channel: int, delay: float) -> None: ...
+    def setup_channel(
+        self, channel: int, delay: float, trigger_level_v: float = 0.1
+    ) -> None: ...
 
     def setup_counters(
         self, channel_list: list[int], counts_bin_width_ms: float, counts_time_frame_s: float

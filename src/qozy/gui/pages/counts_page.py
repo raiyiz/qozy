@@ -32,11 +32,13 @@ from qozy.core.bell_math import POLARIZATION_LABELS
 from qozy.core.controller import MeasurementController
 from qozy.core.data_model import ChannelConfig, MeasurementConfig, MeasurementState
 from qozy.core.scan_controller import BellScanController
+from qozy.core.settings_store import TimeTaggerSettingsStore
 from qozy.gui.components import Card
 from qozy.gui.plot_panel import PlotPanel
 from qozy.gui.scan_worker import make_scan_thread
 from qozy.gui.worker import make_worker_thread
 from qozy.hardware.simulator import SimulatorAdapter, SimulatorStage
+from qozy.hardware.timetagger_adapter import TimeTaggerAdapter
 
 
 def _parse_channels(text: str) -> list[ChannelConfig]:
@@ -60,6 +62,7 @@ class CountsPage(QWidget):
         self._worker = None
         self._scan_thread = None
         self._scan_worker = None
+        self._settings_store = TimeTaggerSettingsStore()
 
         root = QVBoxLayout(self)
         root.setContentsMargins(32, 28, 32, 28)
@@ -76,6 +79,43 @@ class CountsPage(QWidget):
         root.addLayout(body)
 
         root.addWidget(self._build_bell_section())
+        self._load_timetagger_defaults()
+
+    def _load_timetagger_defaults(self) -> None:
+        settings = self._settings_store.load()
+        self.alice_edit.setText(", ".join(str(v) for v in settings.alice_channels))
+        self.bob_edit.setText(", ".join(str(v) for v in settings.bob_channels))
+
+    def _apply_runtime_settings(self) -> None:
+        settings = self._settings_store.load()
+        errors = settings.validate()
+        if errors:
+            raise ValueError(" | ".join(errors))
+
+        if settings.backend_mode == "hardware":
+            adapter = TimeTaggerAdapter()
+        else:
+            adapter = SimulatorAdapter()
+        adapter.connect()
+
+        delay_by_channel = settings.channel_delay_map()
+        alice_channels = [
+            ChannelConfig(channel=ch, delay_ns=delay_by_channel.get(ch, 0.0))
+            for ch in settings.alice_channels
+        ]
+        bob_channels = [
+            ChannelConfig(channel=ch, delay_ns=delay_by_channel.get(ch, 0.0))
+            for ch in settings.bob_channels
+        ]
+        self.controller.adapter = adapter
+        self.controller.config.alice_channels = alice_channels
+        self.controller.config.bob_channels = bob_channels
+        self.controller.config.counts_bin_width_ms = settings.counts_bin_width_ms
+        self.controller.config.counts_time_frame_s = settings.counts_time_frame_s
+        self.controller.config.coincidence_window_ns = settings.coincidence_window_ns
+        self.controller.config.correlation_bin_width_ns = settings.correlation_bin_width_ns
+        self.controller.config.correlation_time_frame_ns = settings.correlation_time_frame_ns
+        self.controller._configured = False
 
     def _build_controls(self) -> QWidget:
         card = Card()
@@ -151,8 +191,23 @@ class CountsPage(QWidget):
         return card
 
     def _start(self) -> None:
-        self.controller.config.alice_channels = _parse_channels(self.alice_edit.text())
-        self.controller.config.bob_channels = _parse_channels(self.bob_edit.text())
+        try:
+            self._apply_runtime_settings()
+        except (ImportError, OSError, RuntimeError, ValueError) as exc:
+            self.status_label.setText(f"Settings error: {exc}")
+            return
+
+        delay_by_channel = {
+            c.channel: c.delay_ns for c in self._settings_store.load().channel_settings if c.enabled
+        }
+        self.controller.config.alice_channels = [
+            ChannelConfig(channel=c.channel, delay_ns=delay_by_channel.get(c.channel, 0.0))
+            for c in _parse_channels(self.alice_edit.text())
+        ]
+        self.controller.config.bob_channels = [
+            ChannelConfig(channel=c.channel, delay_ns=delay_by_channel.get(c.channel, 0.0))
+            for c in _parse_channels(self.bob_edit.text())
+        ]
         self.controller._configured = False
         self.controller.start()
 

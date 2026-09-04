@@ -19,6 +19,7 @@ from qozy.gui.pages import (
     PolytopePage,
     SettingsPage,
     StateTomographyPage,
+    TimeTaggerSettingsPage,
 )
 from qozy.gui.theme import apply_theme
 
@@ -46,6 +47,7 @@ class MainWindow(QMainWindow):
         self.pages = QStackedWidget()
         for page in (
             SettingsPage(),
+            TimeTaggerSettingsPage(),
             CountsPage(),
             PolytopePage(),
             HeraldedG2Page(),
@@ -72,7 +74,14 @@ class MainWindow(QMainWindow):
 
         self.buttons = []
         for i, text in enumerate(
-            ["Settings", "Counts", "Polytope", "Heralded g2", "State tomography"]
+            [
+                "Settings",
+                "TimeTagger Settings",
+                "Counts",
+                "Polytope",
+                "Heralded g2",
+                "State tomography",
+            ]
         ):
             button = NavButton(text, i)
             button.clicked.connect(lambda checked=False, idx=i: self.select_page(idx))

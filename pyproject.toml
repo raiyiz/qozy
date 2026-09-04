@@ -13,6 +13,7 @@ dependencies = [
   "vispy>=0.14",
   "PyQt6>=6.6",
   "elliptec>=0.1.0",
+  "Swabian-TimeTagger>=2.22.4",
 ]
 
 [project.optional-dependencies]
@@ -22,9 +23,7 @@ dev = [
   "ruff>=0.6.0",
 ]
 hardware = [
-  # Swabian Instruments TimeTagger SDK is not on PyPI; install it from the
-  # vendor package for your OS/arch. Elliptec rotator support is a normal
-  # dependency above (the `elliptec` PyPI package) since that one's real.
+  # Hardware-only extras can be added here later.
 ]
 
 [project.scripts]

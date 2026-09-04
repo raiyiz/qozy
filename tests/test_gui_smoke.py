@@ -18,14 +18,14 @@ from qozy.gui.theme import apply_theme
 def test_main_window_builds_all_pages(qapp) -> None:
     apply_theme(qapp, "light")
     window = MainWindow(qapp)
-    assert window.pages.count() == 5
+    assert window.pages.count() == 6
     window.select_page(1)
     assert window.pages.currentIndex() == 1
 
 
 def test_counts_page_start_stop_cycle_updates_bell_summary(qapp) -> None:
     window = MainWindow(qapp)
-    counts_page = window.pages.widget(1)
+    counts_page = window.pages.widget(2)
 
     counts_page._start()
     for _ in range(5):
@@ -41,7 +41,7 @@ def test_counts_page_start_stop_cycle_updates_bell_summary(qapp) -> None:
 
 def test_counts_page_bell_scan_updates_summary(qapp) -> None:
     window = MainWindow(qapp)
-    counts_page = window.pages.widget(1)
+    counts_page = window.pages.widget(2)
 
     counts_page._run_bell_scan()
     # the scan runs 16 fast simulated settings on its own thread; give it a

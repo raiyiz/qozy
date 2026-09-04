@@ -308,6 +308,7 @@ dependencies = [
     { name = "elliptec" },
     { name = "numpy" },
     { name = "pyqt6" },
+    { name = "swabian-timetagger" },
     { name = "vispy" },
 ]
 
@@ -326,6 +327,7 @@ requires-dist = [
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "pytest-qt", marker = "extra == 'dev'", specifier = ">=4.4" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6.0" },
+    { name = "swabian-timetagger", specifier = ">=2.22.4" },
     { name = "vispy", specifier = ">=0.14" },
 ]
 provides-extras = ["dev", "hardware"]
@@ -353,6 +355,20 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/5e/e5/9e274e24eeb027640ffc7442f21239f16d17f47acec15ae34f32e03a5c79/ruff-0.16.6-py3-none-win32.whl", hash = "sha256:0b87d9d16fcb63e8018423ca1d50b7260f15cb2da33e30db4baad4183a948c25", size = 10049212, upload-time = "2026-09-03T16:57:20.55Z" },
     { url = "https://files.pythonhosted.org/packages/22/31/72472449414223ed1a2da236b992adbb1a2ae59e34794574810f60ce068e/ruff-0.16.6-py3-none-win_amd64.whl", hash = "sha256:10d21c51c3495d8eaea7b703a16592117ea6eb1d649e36335aa965ff1173eb39", size = 10556402, upload-time = "2026-09-03T16:57:23.501Z" },
     { url = "https://files.pythonhosted.org/packages/fc/07/d781f8f8e1ac24bef9f3269cf62ffb1407ca24c3a8f12e5e22874f90528c/ruff-0.16.6-py3-none-win_arm64.whl", hash = "sha256:7a976c79b958f94e50a022a19f0f8c87387448020935ec14fc74331bd0a7f2c5", size = 10412850, upload-time = "2026-09-03T16:57:26.416Z" },
+]
+
+[[package]]
+name = "swabian-timetagger"
+version = "2.22.4"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/65/bf/94ced36019733101e81a8911a909bd4542d41905805473d376a7cd27b553/swabian_timetagger-2.22.4-cp38-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:b160a21e41d41f5c8e206edcc024197fbaf1d218336401ddfd24cf58160f309f", size = 32786857, upload-time = "2026-07-27T15:31:43.263Z" },
+    { url = "https://files.pythonhosted.org/packages/5e/e6/d1172f92ad679752629f67190af24dffbd875c4032c49dda2b28f37e7a68/swabian_timetagger-2.22.4-cp38-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:ed22401cef30419f44aefdb539cbdb89c64d207d74e2cc1377971bdf448ab314", size = 32771024, upload-time = "2026-07-27T15:32:58.067Z" },
+    { url = "https://files.pythonhosted.org/packages/6b/d3/c33afeaab0ffa919240c00980f1a55de1d9ebccc06cf81bdf01fca164004/swabian_timetagger-2.22.4-cp38-abi3-win32.whl", hash = "sha256:641c63ef69584df4a5b0b6706ece0bd3b92735cd530e281ff85ff43ddadf5e87", size = 28990116, upload-time = "2026-07-27T15:33:22.882Z" },
+    { url = "https://files.pythonhosted.org/packages/70/38/cfcc4fb1ea95848e414f18dcf99b56f978425d3444024736bf803eb15958/swabian_timetagger-2.22.4-cp38-abi3-win_amd64.whl", hash = "sha256:c36708c4bfcf3e00c8c717d4524094af9c77f3158d9984b9cf0169b905b54409", size = 29174190, upload-time = "2026-07-27T15:33:41.938Z" },
 ]
 
 [[package]]

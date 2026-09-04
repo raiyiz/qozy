@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import numpy as np
 
+from qozy.core.data_model import TimeTaggerChannelSettings, TimeTaggerSettings
+
 
 class SimulatorAdapter:
     def __init__(self, seed: int | None = None) -> None:
@@ -29,6 +31,11 @@ class SimulatorAdapter:
         self._corr_b_channels: list[int] = []
         self._corr_bin_width_ns = 1.0
         self._corr_bin_number = 1000
+        self._channel_delay_ns: dict[int, float] = {}
+        self._channel_trigger_v: dict[int, float] = {}
+        self._last_alice_channels: list[int] = [1, 2]
+        self._last_bob_channels: list[int] = [3, 4]
+        self._last_coincidence_window_ns = 2.0
 
     def connect(self) -> None:
         self._connected = True
@@ -36,11 +43,20 @@ class SimulatorAdapter:
     def disconnect(self) -> None:
         self._connected = False
 
+    def is_connected(self) -> bool:
+        return self._connected
+
+    def get_device_info(self) -> str:
+        return "Simulator backend"
+
     def setup_sm(self) -> None:
         pass
 
-    def setup_channel(self, channel: int, delay: float) -> None:
-        pass
+    def setup_channel(
+        self, channel: int, delay: float, trigger_level_v: float = 0.1
+    ) -> None:
+        self._channel_delay_ns[channel] = delay
+        self._channel_trigger_v[channel] = trigger_level_v
 
     def setup_counters(
         self, channel_list: list[int], counts_bin_width_ms: float, counts_time_frame_s: float
@@ -56,6 +72,9 @@ class SimulatorAdapter:
         self, a_channels: list[int], b_channels: list[int], coin_time_window_ns: float
     ) -> tuple[list[list[int]], list[int]]:
         combos = [[a, b] for a in a_channels for b in b_channels]
+        self._last_alice_channels = list(a_channels)
+        self._last_bob_channels = list(b_channels)
+        self._last_coincidence_window_ns = coin_time_window_ns
         return combos, list(range(len(combos)))
 
     def setup_correlations(
@@ -125,6 +144,29 @@ class SimulatorAdapter:
         naturally depend on the physical polarizer angles.
         """
         self._angle_context = (alice_deg, bob_deg)
+
+    def read_current_settings(self) -> TimeTaggerSettings:
+        channels = []
+        for channel in range(1, 9):
+            channels.append(
+                TimeTaggerChannelSettings(
+                    channel=channel,
+                    enabled=True,
+                    delay_ns=self._channel_delay_ns.get(channel, 0.0),
+                    trigger_level_v=self._channel_trigger_v.get(channel, 0.1),
+                )
+            )
+        return TimeTaggerSettings(
+            backend_mode="simulator",
+            channel_settings=channels,
+            alice_channels=list(self._last_alice_channels),
+            bob_channels=list(self._last_bob_channels),
+            counts_bin_width_ms=self._counts_bin_width_ms,
+            counts_time_frame_s=self._counts_bin_number * self._counts_bin_width_ms / 1e3,
+            coincidence_window_ns=self._last_coincidence_window_ns,
+            correlation_bin_width_ns=self._corr_bin_width_ns,
+            correlation_time_frame_ns=self._corr_bin_number * self._corr_bin_width_ns,
+        )
 
 
 class SimulatorStage:
