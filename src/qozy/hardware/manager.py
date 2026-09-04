@@ -81,7 +81,9 @@ class HardwareManager:
         address: str = "0",
     ) -> None:
         if self.stage_connected[stage]:
-            raise RuntimeError(f"Disconnect the {stage.title()} polarization stage before changing backend")
+            raise RuntimeError(
+                f"Disconnect the {stage.title()} polarization stage before changing backend"
+            )
         self.stage_backends[stage] = backend
         self.stage_ports[stage] = port.strip()
         self.stage_addresses[stage] = address.strip() or "0"
@@ -95,7 +97,9 @@ class HardwareManager:
         elif self.stage_backends[stage] == "elliptec":
             port = self.stage_ports[stage]
             if not port:
-                raise ValueError(f"A serial port is required for the {stage.title()} polarization stage")
+                raise ValueError(
+                    f"A serial port is required for the {stage.title()} polarization stage"
+                )
             adapter = ElliptecAdapter(port=port, address=self.stage_addresses[stage])
         else:  # pragma: no cover - protected by StageBackendName
             raise ValueError(f"Unknown polarization stage backend: {self.stage_backends[stage]}")
