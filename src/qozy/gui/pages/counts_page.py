@@ -223,7 +223,6 @@ class CountsPage(QWidget):
         self._thread, self._worker = make_worker_thread(self.controller, interval_ms=100)
         self._worker.data_ready.connect(self._on_data)
         self._worker.error.connect(self._on_error)
-        self._worker.stopped.connect(self._thread.quit)
         self._thread.finished.connect(self._on_thread_finished)
         self._thread.start()
 
@@ -237,8 +236,6 @@ class CountsPage(QWidget):
     def _stop(self) -> None:
         if self._worker is not None:
             QMetaObject.invokeMethod(self._worker, "stop", Qt.ConnectionType.QueuedConnection)
-            if self._thread is not None:
-                self._thread.wait()
         else:
             self._set_stopped()
 
