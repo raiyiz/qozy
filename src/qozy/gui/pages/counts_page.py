@@ -44,7 +44,11 @@ def _parse_channels(text: str) -> list[ChannelConfig]:
 class CountsPage(QWidget):
     acquisition_changed = pyqtSignal(bool)
 
-    def __init__(self, hardware: HardwareManager | None = None, controller: MeasurementController | None = None) -> None:
+    def __init__(
+        self,
+        hardware: HardwareManager | None = None,
+        controller: MeasurementController | None = None,
+    ) -> None:
         super().__init__()
         self.hardware = hardware
         if controller is not None:
@@ -223,6 +227,7 @@ class CountsPage(QWidget):
         self._thread, self._worker = make_worker_thread(self.controller, interval_ms=100)
         self._worker.data_ready.connect(self._on_data)
         self._worker.error.connect(self._on_error)
+        self._worker.started.connect(lambda: self._on_started())
         self._thread.finished.connect(self._on_thread_finished)
         self._thread.start()
 
@@ -233,9 +238,13 @@ class CountsPage(QWidget):
         self.status_label.setText("Starting acquisition…")
         self.acquisition_changed.emit(True)
 
+    def _on_started(self) -> None:
+        self.status_label.setText("Acquiring…")
+
     def _stop(self) -> None:
         if self._worker is not None:
-            QMetaObject.invokeMethod(self._worker, "stop", Qt.ConnectionType.QueuedConnection)
+            self.status_label.setText("Stopping…")
+            self._worker.request_stop()
         else:
             self._set_stopped()
 
