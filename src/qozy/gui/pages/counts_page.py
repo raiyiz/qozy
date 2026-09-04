@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import numpy as np
-from PyQt6.QtCore import QMetaObject, Qt, pyqtSignal
+from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (
     QCheckBox,
     QFormLayout,
