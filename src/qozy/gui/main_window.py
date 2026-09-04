@@ -22,7 +22,7 @@ from qozy.gui.pages import (
     TimeTaggerSettingsPage,
 from qozy.gui.pages import CountsPage, HeraldedG2Page, PolytopePage, SettingsPage, StateTomographyPage
 )
-from qozy.gui.theme import THEMES, apply_theme
+from qozy.gui.theme import THEME_ORDER, THEMES, apply_theme
 from qozy.hardware.manager import HardwareManager
 
 
@@ -30,7 +30,7 @@ class MainWindow(QMainWindow):
     def __init__(self, app) -> None:
         super().__init__()
         self.app = app
-        self.theme_modes = tuple(THEMES)
+        self.theme_modes = THEME_ORDER
         self.theme_index = 0
         self.mode = self.theme_modes[self.theme_index]
         self.hardware = HardwareManager()
