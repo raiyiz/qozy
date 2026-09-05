@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (
@@ -21,6 +23,7 @@ from qozy.core.app_config import AppConfig
 from qozy.core.bell_math import POLARIZATION_LABELS
 from qozy.core.controller import MeasurementController
 from qozy.core.data_model import ChannelConfig, MeasurementConfig, MeasurementState
+from qozy.core.export import save_measurement
 from qozy.core.scan_controller import BellScanController
 from qozy.core.settings_store import TimeTaggerSettingsStore
 from qozy.gui.components import Card
@@ -75,6 +78,8 @@ class CountsPage(QWidget):
         self._scan_thread = None
         self._scan_worker = None
         self._settings_store = TimeTaggerSettingsStore()
+        self._export_dir = self._initial.export_dir
+        self._last_scan_matrix: np.ndarray | None = None
 
         root = QVBoxLayout(self)
         root.setContentsMargins(32, 28, 32, 28)
@@ -132,6 +137,14 @@ class CountsPage(QWidget):
         """Copy the current widget selections into ``config`` for saving."""
         config.alice_channels = self.alice_edit.text().strip() or config.alice_channels
         config.bob_channels = self.bob_edit.text().strip() or config.bob_channels
+        config.auto_save_scan = self.auto_save_checkbox.isChecked()
+
+    def set_export_dir(self, path: str) -> None:
+        """Track Settings' export-directory field so a completed Bell scan
+        can be saved there without CountsPage needing a reference to
+        SettingsPage itself (MainWindow wires ``export_dir.textChanged``
+        straight to this method)."""
+        self._export_dir = path.strip() or self._export_dir
 
     def set_adapter(self, adapter: MeasurementAdapter) -> None:
         if self._worker is not None:
@@ -212,6 +225,16 @@ class CountsPage(QWidget):
         self.bell_s_label.setObjectName("MetricValue")
         summary_col.addWidget(self.bell_e_label)
         summary_col.addWidget(self.bell_s_label)
+
+        self.auto_save_checkbox = QCheckBox("Auto-save after scan")
+        self.auto_save_checkbox.setChecked(self._initial.auto_save_scan)
+        summary_col.addWidget(self.auto_save_checkbox)
+
+        self.save_scan_button = QPushButton("Save scan")
+        self.save_scan_button.setEnabled(False)
+        self.save_scan_button.clicked.connect(self._save_scan_matrix)
+        summary_col.addWidget(self.save_scan_button)
+
         summary_col.addStretch()
         row.addLayout(summary_col, 1)
         return card
@@ -325,6 +348,7 @@ class CountsPage(QWidget):
 
         self.scan_button.setEnabled(False)
         self.start_button.setEnabled(False)
+        self.save_scan_button.setEnabled(False)
         self.status_label.setText("Running Bell scan…")
         # freezes Settings/Polarization controls too, since the scan now
         # drives the same stage objects those pages' Move/Home buttons do
@@ -339,12 +363,30 @@ class CountsPage(QWidget):
         max_s = max(abs(v) for v in s)
         self.bell_e_label.setText(f"E: {e_text}")
         self.bell_s_label.setText(f"S: {s_text}  (max |S| = {max_s:.2f})")
-        self.status_label.setText("Scan complete")
+        self._last_scan_matrix = matrix
+        if self.auto_save_checkbox.isChecked():
+            self._save_scan_matrix(auto=True)
+        else:
+            self.status_label.setText("Scan complete")
         self._finish_scan_thread()
 
     def _on_scan_error(self, message: str) -> None:
         self.status_label.setText(f"Scan error: {message}")
         self._finish_scan_thread()
+
+    def _save_scan_matrix(self, auto: bool = False) -> None:
+        if self._last_scan_matrix is None:
+            return
+        try:
+            path = save_measurement(
+                self._last_scan_matrix, base_dir=Path(self._export_dir).expanduser()
+            )
+        except (OSError, RuntimeError) as exc:
+            prefix = "Scan complete — auto-save failed" if auto else "Save failed"
+            self.status_label.setText(f"{prefix}: {exc}")
+            return
+        prefix = "Scan complete — saved to" if auto else "Saved to"
+        self.status_label.setText(f"{prefix} {path}")
 
     def _finish_scan_thread(self) -> None:
         if self._scan_thread is not None:
@@ -352,4 +394,5 @@ class CountsPage(QWidget):
             self._scan_thread.wait()
         self.scan_button.setEnabled(self._hardware_connected)
         self.start_button.setEnabled(self._hardware_connected)
+        self.save_scan_button.setEnabled(self._last_scan_matrix is not None)
         self.acquisition_changed.emit(False)

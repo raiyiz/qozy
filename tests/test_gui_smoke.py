@@ -138,6 +138,66 @@ def test_counts_page_bell_scan_freezes_settings_and_polarization(qapp) -> None:
     assert polarization_page._stage_widgets["bob"]["connect"].isEnabled()
 
 
+def test_counts_page_save_scan_button_disabled_until_scan_completes(qapp) -> None:
+    window = MainWindow(qapp)
+    counts_page = window.pages.widget(2)
+    assert not counts_page.save_scan_button.isEnabled()
+
+    counts_page._run_bell_scan()
+    assert not counts_page.save_scan_button.isEnabled()
+
+    for _ in range(50):
+        qapp.processEvents()
+        if counts_page.status_label.text() == "Scan complete":
+            break
+        time.sleep(0.05)
+
+    assert counts_page.save_scan_button.isEnabled()
+
+
+def test_counts_page_save_scan_writes_file_to_settings_export_dir(qapp, tmp_path) -> None:
+    from qozy.core.export import day_folder
+
+    window = MainWindow(qapp)
+    counts_page = window.pages.widget(2)
+    settings_page = window.pages.widget(0)
+    settings_page.export_dir.setText(str(tmp_path))
+
+    counts_page._run_bell_scan()
+    for _ in range(50):
+        qapp.processEvents()
+        if counts_page.status_label.text() == "Scan complete":
+            break
+        time.sleep(0.05)
+
+    counts_page.save_scan_button.click()
+
+    folder = day_folder(tmp_path)
+    assert list(folder.glob("*.txt"))
+    assert counts_page.status_label.text().startswith("Saved to")
+
+
+def test_counts_page_auto_save_writes_file_without_clicking_save(qapp, tmp_path) -> None:
+    from qozy.core.export import day_folder
+
+    window = MainWindow(qapp)
+    counts_page = window.pages.widget(2)
+    settings_page = window.pages.widget(0)
+    settings_page.export_dir.setText(str(tmp_path))
+    counts_page.auto_save_checkbox.setChecked(True)
+
+    counts_page._run_bell_scan()
+    for _ in range(50):
+        qapp.processEvents()
+        if counts_page.status_label.text().startswith("Scan complete"):
+            break
+        time.sleep(0.05)
+
+    folder = day_folder(tmp_path)
+    assert list(folder.glob("*.txt"))
+    assert counts_page.status_label.text().startswith("Scan complete — saved to")
+
+
 def test_polarization_page_controls_simulator_polarization_stages(qapp) -> None:
     window = MainWindow(qapp)
     polarization_page = window.pages.widget(1)
@@ -211,12 +271,22 @@ def test_settings_page_network_backend_field_and_validation(qapp) -> None:
     assert settings_page.connect_button.text() == "Connect"
 
 
+def test_settings_export_dir_propagates_to_counts_page(qapp) -> None:
+    window = MainWindow(qapp)
+    settings_page = window.pages.widget(0)
+    counts_page = window.pages.widget(2)
+
+    settings_page.export_dir.setText("/tmp/custom_export")
+    assert counts_page._export_dir == "/tmp/custom_export"
+
+
 def test_main_window_persists_config_across_restarts(qapp, tmp_path, monkeypatch) -> None:
     monkeypatch.setattr("qozy.core.app_config.DEFAULT_CONFIG_PATH", tmp_path / "config.json")
 
     window = MainWindow(qapp)
     counts_page = window.pages.widget(2)
     counts_page.alice_edit.setText("5, 6")
+    counts_page.auto_save_checkbox.setChecked(True)
     settings_page = window.pages.widget(0)
     settings_page.export_dir.setText("/tmp/qozy_export")
     polarization_page = window.pages.widget(1)
@@ -227,5 +297,6 @@ def test_main_window_persists_config_across_restarts(qapp, tmp_path, monkeypatch
 
     window2 = MainWindow(qapp)
     assert window2.pages.widget(2).alice_edit.text() == "5, 6"
+    assert window2.pages.widget(2).auto_save_checkbox.isChecked()
     assert window2.pages.widget(0).export_dir.text() == "/tmp/qozy_export"
     assert window2.pages.widget(1)._stage_widgets["alice"]["address"].text() == "2"

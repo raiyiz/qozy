@@ -101,8 +101,8 @@ Settings is the acquisition-backend/configuration page. It contains:
 - network server address for the network backend
 - connect/disconnect
 - connection status
-- export-directory field (configuration field only; export wiring is still
-  incomplete)
+- export-directory field, used by the Counts page's Save/auto-save
+  Bell-scan workflow (see "Counts page and Bell scan")
 
 ## Polarization page
 
@@ -201,6 +201,28 @@ stages from.
 The simulator has a small angle-dependent coincidence model so the Bell scan
 is useful for development and produces a non-flat example matrix.
 
+### Saving a completed scan
+
+The completed 4×4 coincidence matrix is the one thing Counts actually saves
+(live counter/correlation data is a continuously-updating array with no
+natural "this is the measurement" moment, so it isn't exportable from the
+GUI). `CountsPage`:
+
+- tracks Settings' export-directory field via
+  `settings_page.export_dir.textChanged` wired straight to
+  `counts_page.set_export_dir` in `MainWindow` — no direct reference
+  between the two pages
+- enables **Save scan** once a scan finishes, and calls
+  `core.export.save_measurement(matrix, base_dir=...)` on click, which
+  writes into the dated `year/month/day/NN.txt` folder structure and
+  reports the exact path back in the status line
+- also offers an **Auto-save after scan** checkbox; when checked,
+  `_on_scan_finished` calls the same save path itself as soon as the scan
+  completes, no click needed
+- reports a save failure (a full day folder, an unwritable directory) in
+  the status line rather than raising, the same way every other
+  background-worker error in this GUI is surfaced
+
 ## Themes
 
 `gui/theme.py` defines four named presets in `THEME_ORDER`:
@@ -228,11 +250,11 @@ they are not part of the four-theme cycle.
 | Time Tagger network | **Implemented** — single `host:port` server address |
 | Elliptec | **Implemented** — adapter and Polarization-page controls |
 | Simulator | **Implemented** — measurement backend and polarization stages |
-| Config persistence | **Implemented** — Settings/Polarization/Counts field values saved on close, reloaded on startup |
+| Config persistence | **Implemented** — Settings/Polarization/Counts field values (including auto-save) saved on close, reloaded on startup |
+| Measurement export | **Implemented** — Save/auto-save the completed Bell-scan matrix to the Settings export directory |
 | Polytope | Placeholder |
 | Heralded g2 | Placeholder |
 | State tomography | Placeholder |
-| Measurement export | Core helper exists; GUI Save workflow is not yet wired |
 
 ## Time Tagger dependency
 
@@ -252,7 +274,8 @@ The test suite covers the core math/data/controller/export/app_config code
 without a display, plus PyQt6 smoke tests for the main window, live
 acquisition start/stop, Bell scan (including that it uses
 `HardwareManager`'s real stages, refuses to start with a stage
-disconnected, and freezes Settings/Polarization for its duration),
+disconnected, and freezes Settings/Polarization for its duration), saving
+and auto-saving a completed scan to a temp export directory,
 Polarization-page stage controls and Bell-angle presets, four-theme
 cycling, the Settings network-backend field enabling/validation, and
 config persistence across a simulated restart (`MainWindow` closed and
@@ -276,5 +299,4 @@ The GitLab and GitHub CI definitions are kept aligned.
 ## Remaining design work
 
 The main open work is experiment-specific measurement logic for Polytope,
-Heralded g2, and state tomography, plus a proper GUI export/save workflow
-(the export directory field on Settings is not yet wired to `core/export.py`).
+Heralded g2, and state tomography.

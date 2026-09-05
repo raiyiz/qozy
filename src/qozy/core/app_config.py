@@ -42,6 +42,7 @@ class AppConfig:
     bob_stage: StageConfig = field(default_factory=lambda: StageConfig(address="1"))
     alice_channels: str = "1, 2"
     bob_channels: str = "3, 4"
+    auto_save_scan: bool = False
 
 
 def load_config(path: Path | None = None) -> AppConfig:

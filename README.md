@@ -55,10 +55,11 @@ threads so vendor-library calls do not run on the GUI thread.
 ## Settings persistence
 
 Settings, Polarization, and Counts field values (acquisition backend and
-network address, export directory, each stage's backend/port/address, and
-the Alice/Bob detector channels) are saved to `~/.qozy/config.json` when the
-window closes, and reloaded to pre-fill those same fields the next time QOZY
-starts. Only the *selections* persist, never live connection state — QOZY always
+network address, export directory, each stage's backend/port/address, the
+Alice/Bob detector channels, and the auto-save-after-scan preference) are
+saved to `~/.qozy/config.json` when the window closes, and reloaded to
+pre-fill those same fields the next time QOZY starts. Only the
+*selections* persist, never live connection state — QOZY always
 starts with the simulator connected (acquisition and both stages), and
 switching to a real backend still needs its Connect button pressed, so a
 stale saved address can never cause an unattended connection attempt to
@@ -96,6 +97,14 @@ duration to avoid a manual move racing the scan on the same device.
 The simulator stages and simulator measurement adapter make this workflow
 runnable without hardware.
 
+Once a scan finishes, **Save scan** writes the 4×4 coincidence matrix to
+Settings' export directory as a tab-delimited `.txt` file, in a
+`year/month/day/NN.txt` folder structure (`NN` is the first free two-digit
+number that day). Checking **Auto-save after scan** saves it there
+automatically as soon as the scan completes, no click needed. The saved
+path (or a save error, e.g. a full day folder) is reported in the status
+line.
+
 ## Test
 
 ```bash
@@ -108,9 +117,9 @@ The suite also covers Time Tagger backend behavior (including the network
 backend and the connect/disconnect reconfiguration guard), simulator
 polarization stages and Bell-angle presets on the Polarization page, the
 Bell scan driving HardwareManager's real stages (including its
-connected-stage guard and cross-page freeze), Settings acquisition
-controls, config persistence across a simulated restart, and the
-four-theme cycling behavior.
+connected-stage guard and cross-page freeze), saving and auto-saving a
+completed scan, Settings acquisition controls, config persistence across a
+simulated restart, and the four-theme cycling behavior.
 
 ## Lint
 
