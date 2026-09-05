@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import sys
 import types
 
 import pytest
 
+from qozy.hardware import timetagger_adapter
 from qozy.hardware.manager import HardwareManager
 from qozy.hardware.timetagger_adapter import TimeTaggerAdapter
 from qozy.hardware.timetagger_network import NetworkTimeTagger
@@ -37,7 +37,7 @@ def test_network_adapter_uses_network_factory(monkeypatch: pytest.MonkeyPatch) -
         ),
         freeTimeTagger=lambda tagger: calls.append(("free", tagger)),
     )
-    monkeypatch.setitem(sys.modules, "TimeTagger", fake_module)
+    monkeypatch.setattr(timetagger_adapter, "_load_timetagger", lambda: fake_module)
 
     adapter = TimeTaggerAdapter("tagger.example:41101")
     adapter.connect()
@@ -97,7 +97,7 @@ def test_hardware_manager_connects_network_backend(monkeypatch: pytest.MonkeyPat
         ),
         freeTimeTagger=lambda tagger: calls.append(("free", tagger)),
     )
-    monkeypatch.setitem(sys.modules, "TimeTagger", fake_module)
+    monkeypatch.setattr(timetagger_adapter, "_load_timetagger", lambda: fake_module)
 
     manager = HardwareManager()
     manager.disconnect()
@@ -109,7 +109,6 @@ def test_hardware_manager_connects_network_backend(monkeypatch: pytest.MonkeyPat
     assert manager.connected
     assert calls == [("network", ["tagger.example:41101"])]
 
-    # a second connect() while already connected must not reconnect
     assert manager.connect() is adapter
     assert calls == [("network", ["tagger.example:41101"])]
 

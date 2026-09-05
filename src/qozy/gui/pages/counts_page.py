@@ -105,28 +105,24 @@ class CountsPage(QWidget):
         self.controller.adapter = (
             self.hardware.adapter if self.hardware is not None else self.controller.adapter
         )
+        delay_map = settings.channel_delay_map()
         self.controller.config.alice_channels = [
-            ChannelConfig(channel=ch) for ch in settings.alice_channels
+            ChannelConfig(channel=ch, delay_ns=delay_map.get(ch, 0.0))
+            for ch in settings.alice_channels
         ]
         self.controller.config.bob_channels = [
-            ChannelConfig(
-                channel=ch,
-                delay_ns=settings.channel_delay_map().get(ch, 0.0),
-            )
+            ChannelConfig(channel=ch, delay_ns=delay_map.get(ch, 0.0))
             for ch in settings.bob_channels
         ]
-        for item, channel_list in (
-            (self.controller.config.alice_channels, settings.alice_channels),
-            (self.controller.config.bob_channels, settings.bob_channels),
-        ):
-            for cfg, ch in zip(item, channel_list):
-                cfg.delay_ns = settings.channel_delay_map().get(ch, 0.0)
         self.controller.config.counts_bin_width_ms = settings.counts_bin_width_ms
         self.controller.config.counts_time_frame_s = settings.counts_time_frame_s
         self.controller.config.coincidence_window_ns = settings.coincidence_window_ns
         self.controller.config.correlation_bin_width_ns = settings.correlation_bin_width_ns
         self.controller.config.correlation_time_frame_ns = settings.correlation_time_frame_ns
-        self.controller._configured = True
+        # The settings describe desired configuration, not a proof that the
+        # current adapter instance has been configured. The acquisition worker
+        # must configure its adapter on its own thread before polling.
+        self.controller._configured = False
         self.alice_edit.setText(", ".join(map(str, settings.alice_channels)))
         self.bob_edit.setText(", ".join(map(str, settings.bob_channels)))
 
@@ -234,6 +230,7 @@ class CountsPage(QWidget):
             raise ValueError("At least one Alice channel and one Bob channel are required")
         self.controller.config.alice_channels = alice
         self.controller.config.bob_channels = bob
+        self.controller._configured = False
 
     def _start(self) -> None:
         if self._thread is not None or self._scan_thread is not None:
@@ -358,21 +355,24 @@ class CountsPage(QWidget):
         max_s = max((abs(v) for v in s), default=0.0)
         self.bell_e_label.setText(f"E: {e_text}")
         self.bell_s_label.setText(f"S: {s_text}  (max |S| = {max_s:.2f})")
+        self.save_scan_button.setEnabled(True)
+        self.scan_button.setEnabled(self._hardware_connected)
+        self.start_button.setEnabled(self._hardware_connected)
         if self.auto_save_checkbox.isChecked():
             self._save_scan_matrix(auto=True)
         else:
             self.status_label.setText("Scan complete")
+        self.acquisition_changed.emit(False)
 
     def _on_scan_error(self, message: str) -> None:
         self.status_label.setText(f"Scan error: {message}")
+        self.scan_button.setEnabled(self._hardware_connected)
+        self.start_button.setEnabled(self._hardware_connected)
+        self.acquisition_changed.emit(False)
 
     def _on_scan_thread_finished(self) -> None:
         self._scan_thread = None
         self._scan_worker = None
-        self.scan_button.setEnabled(self._hardware_connected)
-        self.start_button.setEnabled(self._hardware_connected)
-        self.save_scan_button.setEnabled(self._last_scan_matrix is not None)
-        self.acquisition_changed.emit(False)
 
     def _save_scan_matrix(self, auto: bool = False) -> None:
         if self._last_scan_matrix is None:
