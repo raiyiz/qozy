@@ -1,14 +1,10 @@
-"""Process-wide hardware selection/connection manager.
-
-The manager deliberately contains no Qt code. GUI workers call connection
-and motion methods from background threads, while pages only consume the
-hardware objects once the requested operation has succeeded.
-"""
+"""Process-wide hardware selection/connection manager."""
 
 from __future__ import annotations
 
 from typing import Literal
 
+from qozy.core.data_model import TimeTaggerSettings
 from qozy.hardware.base import MeasurementAdapter, PositionerAdapter
 from qozy.hardware.elliptec_adapter import ElliptecAdapter
 from qozy.hardware.simulator import SimulatorAdapter, SimulatorStage
@@ -27,6 +23,7 @@ class HardwareManager:
         self.adapter: MeasurementAdapter = SimulatorAdapter()
         self.adapter.connect()
         self.connected = True
+        self.timetagger_settings = TimeTaggerSettings()
 
         self.stage_backends: dict[StageName, StageBackendName] = {
             "alice": "simulator",
@@ -59,7 +56,7 @@ class HardwareManager:
             adapter = LocalTimeTagger()
         elif self.backend == "timetagger-network":
             adapter = NetworkTimeTagger(self.network_address)
-        else:  # pragma: no cover - protected by BackendName
+        else:  # pragma: no cover
             raise ValueError(f"Unknown acquisition backend: {self.backend}")
 
         adapter.connect()
@@ -72,6 +69,50 @@ class HardwareManager:
             return
         self.adapter.disconnect()
         self.connected = False
+
+    def configure_timetagger(self, settings: TimeTaggerSettings) -> None:
+        """Apply all Time Tagger input and measurement settings to the backend."""
+        if not self.connected:
+            raise RuntimeError("Connect a Time Tagger backend before applying settings")
+        errors = settings.validate()
+        if errors:
+            raise ValueError(" | ".join(errors))
+
+        self.adapter.setup_sm()
+        for channel in settings.channel_settings:
+            if channel.enabled:
+                self.adapter.setup_channel(
+                    channel.channel, channel.delay_ns, channel.trigger_level_v
+                )
+
+        channels = settings.enabled_channels()
+        self.adapter.setup_counters(
+            channels, settings.counts_bin_width_ms, settings.counts_time_frame_s
+        )
+        self.adapter.setup_countrates(channels)
+        self.adapter.setup_coincidences(
+            settings.alice_channels,
+            settings.bob_channels,
+            settings.coincidence_window_ns,
+        )
+        self.adapter.setup_correlations(
+            settings.alice_channels,
+            settings.bob_channels,
+            settings.correlation_bin_width_ns,
+            settings.correlation_time_frame_ns,
+        )
+        self.timetagger_settings = settings
+
+    def read_timetagger_settings(self) -> TimeTaggerSettings:
+        """Read the backend's current values when adapter readback is supported."""
+        if not self.connected:
+            raise RuntimeError("Time Tagger is disconnected")
+        reader = getattr(self.adapter, "read_current_settings", None)
+        if reader is None:
+            return self.timetagger_settings
+        settings = reader()
+        self.timetagger_settings = settings
+        return settings
 
     def select_stage(
         self,
@@ -101,7 +142,7 @@ class HardwareManager:
                     f"A serial port is required for the {stage.title()} polarization stage"
                 )
             adapter = ElliptecAdapter(port=port, address=self.stage_addresses[stage])
-        else:  # pragma: no cover - protected by StageBackendName
+        else:  # pragma: no cover
             raise ValueError(f"Unknown polarization stage backend: {self.stage_backends[stage]}")
 
         adapter.connect()
