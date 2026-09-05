@@ -22,7 +22,7 @@ from PyQt6.QtWidgets import (
 from qozy.core.app_config import AppConfig
 from qozy.core.bell_math import POLARIZATION_LABELS
 from qozy.core.controller import MeasurementController
-from qozy.core.data_model import ChannelConfig, MeasurementConfig, MeasurementState
+from qozy.core.data_model import ChannelConfig, MeasurementConfig, MeasurementState, TimeTaggerSettings
 from qozy.core.export import save_measurement
 from qozy.core.scan_controller import BellScanController
 from qozy.gui.components import Card
@@ -32,15 +32,6 @@ from qozy.gui.worker import make_worker_thread
 from qozy.hardware.base import MeasurementAdapter, PositionerAdapter
 from qozy.hardware.manager import HardwareManager
 from qozy.hardware.simulator import SimulatorStage
-
-
-def _parse_channels(text: str) -> list[ChannelConfig]:
-    channels: list[ChannelConfig] = []
-    for part in text.split(","):
-        part = part.strip()
-        if part:
-            channels.append(ChannelConfig(channel=int(part)))
-    return channels
 
 
 class CountsPage(QWidget):
@@ -86,11 +77,12 @@ class CountsPage(QWidget):
         body.addWidget(self.plot_panel, 1)
         root.addLayout(body)
         root.addWidget(self._build_bell_section())
+        self.set_timetagger_settings(
+            hardware.timetagger_settings if hardware is not None else TimeTaggerSettings()
+        )
         self.set_hardware_connected(self._hardware_connected)
 
     def export_config(self, config: AppConfig) -> None:
-        config.alice_channels = self.alice_edit.text().strip() or config.alice_channels
-        config.bob_channels = self.bob_edit.text().strip() or config.bob_channels
         config.auto_save_scan = self.auto_save_checkbox.isChecked()
 
     def set_export_dir(self, path: str) -> None:
@@ -100,8 +92,36 @@ class CountsPage(QWidget):
         if self._worker is not None:
             raise RuntimeError("Cannot replace the adapter during live acquisition")
         self.controller = MeasurementController(adapter, self.controller.config)
+        self._prepare_controller_config()
         self.set_hardware_connected(True)
         self.status_label.setText("Backend connected; ready")
+
+    def set_timetagger_settings(self, settings: TimeTaggerSettings) -> None:
+        self.controller.adapter = self.hardware.adapter if self.hardware is not None else self.controller.adapter
+        self.controller.config.alice_channels = [
+            ChannelConfig(channel=ch) for ch in settings.alice_channels
+        ]
+        self.controller.config.bob_channels = [
+            ChannelConfig(
+                channel=ch,
+                delay_ns=settings.channel_delay_map().get(ch, 0.0),
+            )
+            for ch in settings.bob_channels
+        ]
+        for item, channel_list in (
+            (self.controller.config.alice_channels, settings.alice_channels),
+            (self.controller.config.bob_channels, settings.bob_channels),
+        ):
+            for cfg, ch in zip(item, channel_list):
+                cfg.delay_ns = settings.channel_delay_map().get(ch, 0.0)
+        self.controller.config.counts_bin_width_ms = settings.counts_bin_width_ms
+        self.controller.config.counts_time_frame_s = settings.counts_time_frame_s
+        self.controller.config.coincidence_window_ns = settings.coincidence_window_ns
+        self.controller.config.correlation_bin_width_ns = settings.correlation_bin_width_ns
+        self.controller.config.correlation_time_frame_ns = settings.correlation_time_frame_ns
+        self.controller._configured = True
+        self.alice_edit.setText(", ".join(map(str, settings.alice_channels)))
+        self.bob_edit.setText(", ".join(map(str, settings.bob_channels)))
 
     def set_hardware_connected(self, connected: bool) -> None:
         self._hardware_connected = connected
@@ -118,8 +138,10 @@ class CountsPage(QWidget):
         form.setContentsMargins(20, 20, 20, 20)
         form.setSpacing(12)
 
-        self.alice_edit = QLineEdit(self._initial.alice_channels)
-        self.bob_edit = QLineEdit(self._initial.bob_channels)
+        self.alice_edit = QLineEdit()
+        self.alice_edit.setReadOnly(True)
+        self.bob_edit = QLineEdit()
+        self.bob_edit.setReadOnly(True)
         form.addRow("Alice channels", self.alice_edit)
         form.addRow("Bob channels", self.bob_edit)
 
@@ -190,23 +212,26 @@ class CountsPage(QWidget):
         return card
 
     def _prepare_controller_config(self) -> None:
-        alice = _parse_channels(self.alice_edit.text())
-        bob = _parse_channels(self.bob_edit.text())
+        if self.hardware is not None:
+            settings = self.hardware.timetagger_settings
+            errors = settings.validate()
+            if errors:
+                raise ValueError(" | ".join(errors))
+            self.set_timetagger_settings(settings)
+            return
+        alice = [ChannelConfig(channel=int(v)) for v in self.alice_edit.text().split(",") if v.strip()]
+        bob = [ChannelConfig(channel=int(v)) for v in self.bob_edit.text().split(",") if v.strip()]
         if not alice or not bob:
             raise ValueError("At least one Alice channel and one Bob channel are required")
-        overlap = sorted(set(c.channel for c in alice) & set(c.channel for c in bob))
-        if overlap:
-            raise ValueError(f"Alice/Bob channels must be distinct; overlap: {overlap}")
         self.controller.config.alice_channels = alice
         self.controller.config.bob_channels = bob
-        self.controller._configured = False
 
     def _start(self) -> None:
         if self._thread is not None or self._scan_thread is not None:
             return
         try:
             self._prepare_controller_config()
-        except ValueError as exc:
+        except (ValueError, TypeError) as exc:
             self.status_label.setText(f"Settings error: {exc}")
             return
 
@@ -284,14 +309,21 @@ class CountsPage(QWidget):
             return
         try:
             self._prepare_controller_config()
-        except ValueError as exc:
+        except (ValueError, TypeError) as exc:
             self.status_label.setText(f"Settings error: {exc}")
             return
 
         alice = [c.channel for c in self.controller.config.alice_channels]
         bob = [c.channel for c in self.controller.config.bob_channels]
         alice_stage, bob_stage = self._bell_scan_stages()
-        scan = BellScanController(self.controller.adapter, alice_stage, bob_stage, alice, bob)
+        scan = BellScanController(
+            self.controller.adapter,
+            alice_stage,
+            bob_stage,
+            alice,
+            bob,
+            coincidence_window_ns=self.controller.config.coincidence_window_ns,
+        )
         self._scan_thread, self._scan_worker = make_scan_thread(scan)
         self._scan_worker.cell_done.connect(self._on_scan_cell)
         self._scan_worker.finished.connect(self._on_scan_finished)
