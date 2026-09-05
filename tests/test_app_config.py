@@ -16,8 +16,6 @@ def test_save_then_load_round_trips(tmp_path) -> None:
         export_dir="/data/qozy",
         alice_stage=StageConfig(backend="elliptec", port="/dev/ttyUSB0", address="0"),
         bob_stage=StageConfig(backend="elliptec", port="/dev/ttyUSB1", address="1"),
-        alice_channels="1, 2, 5",
-        bob_channels="3, 4",
         auto_save_scan=True,
     )
     save_config(original, path)

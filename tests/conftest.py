@@ -17,3 +17,21 @@ from PyQt6.QtWidgets import QApplication
 def qapp():
     app = QApplication.instance() or QApplication([])
     yield app
+
+
+@pytest.fixture(autouse=True)
+def isolated_persisted_files(tmp_path, monkeypatch):
+    """Every test gets its own throwaway paths for both on-disk stores QOZY
+    writes outside the repo — ``AppConfig`` (automatic, saved on every
+    window close) and the Time Tagger settings profile (explicit
+    Save/Apply only) — so the suite can never read or overwrite whatever
+    real files happen to exist at ``~/.qozy/...`` on the machine running
+    it. Individual tests are still free to pass their own explicit path to
+    ``load_config``/``save_config``/``TimeTaggerSettingsStore``; this only
+    changes what the no-argument defaults resolve to.
+    """
+    monkeypatch.setattr("qozy.core.app_config.DEFAULT_CONFIG_PATH", tmp_path / "config.json")
+    monkeypatch.setattr(
+        "qozy.core.settings_store.DEFAULT_SETTINGS_PATH",
+        tmp_path / "timetagger_settings.json",
+    )

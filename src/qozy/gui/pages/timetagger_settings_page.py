@@ -70,16 +70,14 @@ class TimeTaggerSettingsPage(QWidget):
         self._update_connection_controls()
 
     def export_config(self, config: AppConfig) -> None:
+        """Copy the backend/network selections into the shared, automatic
+        ``AppConfig`` — the Time Tagger settings *profile* itself
+        (channels, timing, triggers) is only ever persisted by explicit
+        user action (Save profile / Apply to backend), never here, so
+        closing the window can never silently overwrite a working
+        profile with whatever happens to be sitting in the fields."""
         config.acquisition_backend = self._selected_backend()
         config.network_address = self.network_address.text().strip() or config.network_address
-        try:
-            settings = self._collect_settings()
-        except (TypeError, ValueError):
-            return
-        if settings.validate():
-            return
-        self.settings = settings
-        self.store.save(settings)
 
     def set_busy(self, busy: bool) -> None:
         self._busy = busy

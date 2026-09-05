@@ -254,8 +254,7 @@ def test_settings_export_dir_propagates_to_counts_page(qapp) -> None:
     assert counts_page._export_dir == "/tmp/custom_export"
 
 
-def test_main_window_persists_config_across_restarts(qapp, tmp_path, monkeypatch) -> None:
-    monkeypatch.setattr("qozy.core.app_config.DEFAULT_CONFIG_PATH", tmp_path / "config.json")
+def test_main_window_persists_config_across_restarts(qapp, tmp_path) -> None:
     window = MainWindow(qapp)
     timetagger_page = _page(window, 1)
     timetagger_page.alice_edit.setText("5, 6")
@@ -273,3 +272,18 @@ def test_main_window_persists_config_across_restarts(qapp, tmp_path, monkeypatch
     assert window2.pages.widget(3).auto_save_checkbox.isChecked()
     assert window2.pages.widget(0).export_dir.text() == "/tmp/qozy_export"
     assert window2.pages.widget(2)._stage_widgets["alice"]["address"].text() == "2"
+
+
+def test_closing_without_saving_does_not_touch_timetagger_profile(qapp, tmp_path) -> None:
+    """``MainWindow.closeEvent`` always saves the automatic ``AppConfig``,
+    but must never silently persist the Time Tagger settings *profile* —
+    only explicit Save profile / Apply to backend actions do that (see
+    ``TimeTaggerSettingsPage.export_config``'s docstring)."""
+    window = MainWindow(qapp)
+    timetagger_page = _page(window, 1)
+    timetagger_page.alice_edit.setText("7, 8")  # edited, but never saved/applied
+
+    window.close()
+
+    assert not (tmp_path / "timetagger_settings.json").exists()
+    assert (tmp_path / "config.json").exists()

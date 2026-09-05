@@ -1,11 +1,14 @@
 """Persisted "last used" GUI field values.
 
 This only covers what the user actually types or selects in Settings,
-Polarization, and Counts — acquisition backend, network/serial addresses,
-detector channels, export directory — never live connection state, which
-always starts fresh (see the GUI threading rule in ``docs/architecture.md``:
-we never want to auto-reconnect to real hardware on startup without the
-user pressing Connect).
+Time Tagger connection, Polarization, and Counts — acquisition backend,
+network/serial addresses, export directory, and the auto-save-scan
+preference — never live connection state, which always starts fresh (see
+the GUI threading rule in ``docs/architecture.md``: we never want to
+auto-reconnect to real hardware on startup without the user pressing
+Connect), and never the Time Tagger measurement profile itself (channels,
+timing, triggers) — that is a separate, explicitly-saved concern owned by
+``core.settings_store.TimeTaggerSettingsStore``, not this automatic one.
 
 Deliberately no Qt here, same as the rest of ``qozy.core``: the config is a
 plain JSON file so loading/saving can be unit tested without a display, and
@@ -40,8 +43,6 @@ class AppConfig:
     export_dir: str = "~/qozy_data"
     alice_stage: StageConfig = field(default_factory=lambda: StageConfig(address="0"))
     bob_stage: StageConfig = field(default_factory=lambda: StageConfig(address="1"))
-    alice_channels: str = "1, 2"
-    bob_channels: str = "3, 4"
     auto_save_scan: bool = False
 
 
