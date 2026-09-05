@@ -5,8 +5,8 @@ The adapter is intentionally agnostic about where the Time Tagger comes from:
 Network Time Tagger. Both expose the same SDK measurement API, so the rest of
 QOZY does not need to care about the transport.
 
-The vendor SDK is imported lazily in ``connect()`` because it is an optional
-hardware dependency and is not needed for simulator-only development/CI.
+The vendor SDK is imported lazily so simulator-only development and tests do
+not require a working hardware connection.
 """
 
 from __future__ import annotations
@@ -14,6 +14,23 @@ from __future__ import annotations
 import numpy as np
 
 from qozy.core.data_model import TimeTaggerChannelSettings, TimeTaggerSettings
+
+
+def _load_timetagger():
+    """Load the vendor SDK lazily.
+
+    Keeping the loader at module scope makes the optional hardware dependency
+    explicitly replaceable in tests without touching ``sys.modules``.
+    """
+    try:
+        from Swabian import TimeTagger
+    except ImportError as exc:
+        raise RuntimeError(
+            "TimeTagger Python SDK is not installed in this environment. "
+            "Install the Swabian Instruments TimeTagger package, or switch "
+            "the backend to Simulator."
+        ) from exc
+    return TimeTagger
 
 
 class TimeTaggerAdapter:
@@ -39,20 +56,9 @@ class TimeTaggerAdapter:
         self._TimeTagger = None
 
     def connect(self) -> None:
-        try:
-            from Swabian import TimeTagger
-        except ImportError as exc:
-            raise RuntimeError(
-                "TimeTagger Python SDK is not installed in this environment. "
-                "Install the Swabian Instruments TimeTagger package, or switch "
-                "the backend to Simulator."
-            ) from exc
-
+        TimeTagger = _load_timetagger()
         self._TimeTagger = TimeTagger
         if self.address:
-            # Current Network Time Tagger accepts a list of server addresses;
-            # keeping this as a one-element list leaves room for multi-server
-            # support later without changing the adapter interface.
             self.tagger = TimeTagger.createTimeTaggerNetwork([self.address])
         else:
             self.tagger = TimeTagger.createTimeTagger()
@@ -72,7 +78,6 @@ class TimeTaggerAdapter:
     def get_device_info(self) -> str:
         if not self.is_connected():
             return "Disconnected"
-        # Serial/model helpers vary by SDK versions; keep this robust.
         return "TimeTagger connected"
 
     def setup_sm(self) -> None:
