@@ -44,11 +44,7 @@ def _parse_channels(text: str) -> list[ChannelConfig]:
 class CountsPage(QWidget):
     acquisition_changed = pyqtSignal(bool)
 
-    def __init__(
-        self,
-        hardware: HardwareManager | None = None,
-        controller: MeasurementController | None = None,
-    ) -> None:
+    def __init__(self, hardware: HardwareManager | None = None, controller: MeasurementController | None = None) -> None:
         super().__init__()
         self.hardware = hardware
         if controller is not None:
@@ -58,6 +54,7 @@ class CountsPage(QWidget):
         else:
             raise ValueError("CountsPage requires a HardwareManager or MeasurementController")
 
+        self._hardware_connected = hardware is None or hardware.connected
         self.alice_stage = SimulatorStage()
         self.bob_stage = SimulatorStage()
         self._thread = None
@@ -79,7 +76,6 @@ class CountsPage(QWidget):
         self.plot_panel = PlotPanel()
         body.addWidget(self.plot_panel, 1)
         root.addLayout(body)
-
         root.addWidget(self._build_bell_section())
         self._load_timetagger_defaults()
 
@@ -120,11 +116,19 @@ class CountsPage(QWidget):
         self.controller._configured = False
 
     def set_adapter(self, adapter: MeasurementAdapter) -> None:
-        """Switch to a newly connected acquisition backend."""
         if self._worker is not None:
             raise RuntimeError("Cannot replace the adapter during live acquisition")
         self.controller = MeasurementController(adapter, self.controller.config)
+        self.set_hardware_connected(True)
         self.status_label.setText("Backend connected; ready")
+
+    def set_hardware_connected(self, connected: bool) -> None:
+        self._hardware_connected = connected
+        idle = self._worker is None
+        self.start_button.setEnabled(connected and idle)
+        self.scan_button.setEnabled(connected and idle)
+        if not connected and idle:
+            self.status_label.setText("No acquisition backend connected")
 
     def _build_controls(self) -> QWidget:
         card = Card()
@@ -155,7 +159,6 @@ class CountsPage(QWidget):
         self.status_label.setProperty("role", "muted")
         self.status_label.setWordWrap(True)
         form.addRow("", self.status_label)
-
         return card
 
     def _build_bell_section(self) -> QWidget:
@@ -168,7 +171,6 @@ class CountsPage(QWidget):
         label = QLabel("Coincidence matrix")
         label.setObjectName("SectionTitle")
         table_col.addWidget(label)
-
         self.bell_table = QTableWidget(4, 4)
         self.bell_table.setVerticalHeaderLabels(list(POLARIZATION_LABELS))
         self.bell_table.setHorizontalHeaderLabels(["22.5°", "67.5°", "112.5°", "157.5°"])
@@ -184,11 +186,9 @@ class CountsPage(QWidget):
         label2 = QLabel("Bell summary")
         label2.setObjectName("SectionTitle")
         summary_col.addWidget(label2)
-
         self.scan_button = QPushButton("Run Bell scan")
         self.scan_button.clicked.connect(self._run_bell_scan)
         summary_col.addWidget(self.scan_button)
-
         self.bell_e_label = QLabel("E: —")
         self.bell_s_label = QLabel("S: —")
         self.bell_s_label.setObjectName("MetricValue")
@@ -196,7 +196,6 @@ class CountsPage(QWidget):
         summary_col.addWidget(self.bell_s_label)
         summary_col.addStretch()
         row.addLayout(summary_col, 1)
-
         return card
 
     def _start(self) -> None:
@@ -250,9 +249,9 @@ class CountsPage(QWidget):
 
     def _set_stopped(self) -> None:
         self.live_checkbox.setChecked(False)
-        self.start_button.setEnabled(True)
+        self.start_button.setEnabled(self._hardware_connected)
         self.stop_button.setEnabled(False)
-        self.scan_button.setEnabled(True)
+        self.scan_button.setEnabled(self._hardware_connected)
         if not self.status_label.text().startswith("Error:"):
             self.status_label.setText("Stopped")
         self.acquisition_changed.emit(False)
@@ -262,7 +261,7 @@ class CountsPage(QWidget):
         if counter is None or counter.shape[0] < 2:
             return
         t = counter[0]
-        alice = counter[1] if counter.shape[0] > 1 else None
+        alice = counter[1]
         bob = counter[2] if counter.shape[0] > 2 else None
         corr = None
         if state.corr_data:
@@ -308,5 +307,5 @@ class CountsPage(QWidget):
         if self._scan_thread is not None:
             self._scan_thread.quit()
             self._scan_thread.wait()
-        self.scan_button.setEnabled(True)
-        self.start_button.setEnabled(True)
+        self.scan_button.setEnabled(self._hardware_connected)
+        self.start_button.setEnabled(self._hardware_connected)
