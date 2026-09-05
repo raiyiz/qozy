@@ -45,3 +45,43 @@ uv run ruff check .
 
 Same commands CI runs — see `.gitlab-ci.yml` (source of truth) and
 `.github/workflows/ci.yml` (mirror), documented in `docs/architecture.md`.
+
+## Troubleshooting
+
+### Permission denied when connection to TimeTagger
+
+`ERR: Could not open device file(/dev/bus/usb/004/002): Permission denied`
+
+Solution
+---
+Find out Vednor and Device ID
+`ls -l /dev/bus/usb/004/002`
+
+1. First identify the device
+
+`lsusb`
+
+You'll get something like:
+
+`Bus 004 Device 002: ID 1234:5678 Some Measurement Device`
+
+The important part is:
+
+1234:5678
+^^^^   ^^^^
+VID    PID
+
+2. Create a group and add your user to it:
+`sudo groupadd qozy`
+`sudo usermod -aG qozy "$USER"`
+
+
+3. Add udev rule:
+`sudo nano /etc/udev/rules.d/99-qozy.rules`
+fill it with this content:
+
+`SUBSYSTEM=="usb", ATTR{idVendor}=="1234", ATTR{idProduct}=="5678", GROUP="qozy", MODE="0660"`
+ 
+4. logout-login again
+
+

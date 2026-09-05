@@ -41,7 +41,7 @@ class TimeTaggerAdapter:
 
     def connect(self) -> None:
         try:
-            import TimeTagger
+            from Swabian import TimeTagger
         except ImportError as exc:
             raise RuntimeError(
                 "TimeTagger Python SDK is not installed in this environment. "
