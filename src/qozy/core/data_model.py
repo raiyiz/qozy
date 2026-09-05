@@ -107,7 +107,9 @@ class TimeTaggerSettings:
             if channel.channel <= 0:
                 errors.append(f"Channel {channel.channel} must be > 0.")
             if channel.channel in seen:
-                errors.append(f"Channel {channel.channel} appears more than once in channel settings.")
+                errors.append(
+                    f"Channel {channel.channel} appears more than once in channel settings."
+                )
             seen.add(channel.channel)
             if channel.delay_ns < 0:
                 errors.append(f"Channel {channel.channel} delay must be >= 0.")

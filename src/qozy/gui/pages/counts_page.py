@@ -22,7 +22,12 @@ from PyQt6.QtWidgets import (
 from qozy.core.app_config import AppConfig
 from qozy.core.bell_math import POLARIZATION_LABELS
 from qozy.core.controller import MeasurementController
-from qozy.core.data_model import ChannelConfig, MeasurementConfig, MeasurementState, TimeTaggerSettings
+from qozy.core.data_model import (
+    ChannelConfig,
+    MeasurementConfig,
+    MeasurementState,
+    TimeTaggerSettings,
+)
 from qozy.core.export import save_measurement
 from qozy.core.scan_controller import BellScanController
 from qozy.gui.components import Card
@@ -97,7 +102,9 @@ class CountsPage(QWidget):
         self.status_label.setText("Backend connected; ready")
 
     def set_timetagger_settings(self, settings: TimeTaggerSettings) -> None:
-        self.controller.adapter = self.hardware.adapter if self.hardware is not None else self.controller.adapter
+        self.controller.adapter = (
+            self.hardware.adapter if self.hardware is not None else self.controller.adapter
+        )
         self.controller.config.alice_channels = [
             ChannelConfig(channel=ch) for ch in settings.alice_channels
         ]
@@ -219,7 +226,9 @@ class CountsPage(QWidget):
                 raise ValueError(" | ".join(errors))
             self.set_timetagger_settings(settings)
             return
-        alice = [ChannelConfig(channel=int(v)) for v in self.alice_edit.text().split(",") if v.strip()]
+        alice = [
+            ChannelConfig(channel=int(v)) for v in self.alice_edit.text().split(",") if v.strip()
+        ]
         bob = [ChannelConfig(channel=int(v)) for v in self.bob_edit.text().split(",") if v.strip()]
         if not alice or not bob:
             raise ValueError("At least one Alice channel and one Bob channel are required")

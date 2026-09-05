@@ -67,7 +67,9 @@ def load_config(path: Path | None = None) -> AppConfig:
         stage_fields = {f.name for f in fields(StageConfig)}
         config_fields = {f.name for f in fields(AppConfig)}
         config = AppConfig(**{k: v for k, v in raw.items() if k in config_fields})
-        config.alice_stage = StageConfig(**{k: v for k, v in alice_raw.items() if k in stage_fields})
+        config.alice_stage = StageConfig(
+            **{k: v for k, v in alice_raw.items() if k in stage_fields}
+        )
         config.bob_stage = StageConfig(**{k: v for k, v in bob_raw.items() if k in stage_fields})
         return config
     except (TypeError, ValueError):

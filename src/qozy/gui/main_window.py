@@ -69,8 +69,12 @@ class MainWindow(QMainWindow):
         main.addWidget(self.pages, 1)
 
         self.timetagger_settings_page.adapter_ready.connect(self.counts_page.set_adapter)
-        self.timetagger_settings_page.connection_changed.connect(self.counts_page.set_hardware_connected)
-        self.timetagger_settings_page.settings_changed.connect(self.counts_page.set_timetagger_settings)
+        self.timetagger_settings_page.connection_changed.connect(
+            self.counts_page.set_hardware_connected
+        )
+        self.timetagger_settings_page.settings_changed.connect(
+            self.counts_page.set_timetagger_settings
+        )
         self.settings_page.export_dir.textChanged.connect(self.counts_page.set_export_dir)
         self.counts_page.acquisition_changed.connect(self.settings_page.set_busy)
         self.counts_page.acquisition_changed.connect(self.timetagger_settings_page.set_busy)

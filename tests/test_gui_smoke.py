@@ -172,6 +172,7 @@ def test_counts_page_save_scan_button_disabled_until_scan_completes(qapp) -> Non
 
 def test_counts_page_save_scan_writes_file_to_settings_export_dir(qapp, tmp_path) -> None:
     from qozy.core.export import day_folder
+
     window = MainWindow(qapp)
     counts_page = _page(window, 3)
     settings_page = _page(window, 0)
@@ -189,6 +190,7 @@ def test_counts_page_save_scan_writes_file_to_settings_export_dir(qapp, tmp_path
 
 def test_counts_page_auto_save_writes_file_without_clicking_save(qapp, tmp_path) -> None:
     from qozy.core.export import day_folder
+
     window = MainWindow(qapp)
     counts_page = _page(window, 3)
     settings_page = _page(window, 0)

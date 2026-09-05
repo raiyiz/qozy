@@ -155,9 +155,7 @@ class PolarizationPage(QWidget):
         for deg in _QUICK_ANGLES_DEG:
             button = QPushButton(f"{deg:g}°")
             button.setObjectName("Secondary")
-            button.clicked.connect(
-                lambda _checked=False, s=stage, d=deg: self._move_stage_to(s, d)
-            )
+            button.clicked.connect(lambda _checked=False, s=stage, d=deg: self._move_stage_to(s, d))
             presets.addWidget(button)
             preset_buttons.append(button)
         layout.addRow("", presets)

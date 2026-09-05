@@ -79,9 +79,7 @@ class TimeTaggerAdapter:
         self.sm = self._TimeTagger.SynchronizedMeasurements(self.tagger)
         self.sm_tagger = self.sm.getTagger()
 
-    def setup_channel(
-        self, channel: int, delay: float, trigger_level_v: float = 0.1
-    ) -> None:
+    def setup_channel(self, channel: int, delay: float, trigger_level_v: float = 0.1) -> None:
         """``delay`` is in ns."""
         self.tagger.setTriggerLevel(channel, trigger_level_v)
         self.tagger.setInputDelay(channel, delay * 1e3)

@@ -4,8 +4,17 @@ from __future__ import annotations
 
 from PyQt6.QtCore import QThread, Qt, pyqtSignal
 from PyQt6.QtWidgets import (
-    QCheckBox, QComboBox, QFormLayout, QHBoxLayout, QLabel, QLineEdit,
-    QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
+    QCheckBox,
+    QComboBox,
+    QFormLayout,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QPushButton,
+    QTableWidget,
+    QTableWidgetItem,
+    QVBoxLayout,
+    QWidget,
 )
 
 from qozy.core.app_config import AppConfig
@@ -81,12 +90,21 @@ class TimeTaggerSettingsPage(QWidget):
 
     def _config_widgets(self) -> tuple[QWidget, ...]:
         return (
-            self.backend_combo, self.network_address, self.channel_table,
-            self.alice_edit, self.bob_edit, self.counts_bin_width_edit,
-            self.counts_time_frame_edit, self.coin_window_edit,
-            self.corr_bin_width_edit, self.corr_time_frame_edit,
-            self.measure_time_frame_edit, self.apply_button,
-            self.load_device_button, self.save_button, self.load_button,
+            self.backend_combo,
+            self.network_address,
+            self.channel_table,
+            self.alice_edit,
+            self.bob_edit,
+            self.counts_bin_width_edit,
+            self.counts_time_frame_edit,
+            self.coin_window_edit,
+            self.corr_bin_width_edit,
+            self.corr_time_frame_edit,
+            self.measure_time_frame_edit,
+            self.apply_button,
+            self.load_device_button,
+            self.save_button,
+            self.load_button,
             self.reset_button,
         )
 
@@ -101,7 +119,9 @@ class TimeTaggerSettingsPage(QWidget):
         self.backend_combo.currentIndexChanged.connect(self._backend_changed)
         form.addRow("Backend", self.backend_combo)
 
-        self.network_address = QLineEdit(self._initial.network_address or self.hardware.network_address)
+        self.network_address = QLineEdit(
+            self._initial.network_address or self.hardware.network_address
+        )
         self.network_address.setPlaceholderText("host:41101")
         form.addRow("Network server", self.network_address)
 
@@ -123,7 +143,9 @@ class TimeTaggerSettingsPage(QWidget):
         section.setObjectName("SectionTitle")
         layout.addWidget(section)
         self.channel_table = QTableWidget(8, 4)
-        self.channel_table.setHorizontalHeaderLabels(["Enabled", "Channel", "Delay (ns)", "Trigger (V)"])
+        self.channel_table.setHorizontalHeaderLabels(
+            ["Enabled", "Channel", "Delay (ns)", "Trigger (V)"]
+        )
         self.channel_table.verticalHeader().setVisible(False)
         self.channel_table.horizontalHeader().setStretchLastSection(True)
         for row in range(8):
@@ -152,7 +174,8 @@ class TimeTaggerSettingsPage(QWidget):
         self.corr_time_frame_edit = QLineEdit("1000.0")
         self.measure_time_frame_edit = QLineEdit("1.0")
         for label, widget in (
-            ("Alice channels", self.alice_edit), ("Bob channels", self.bob_edit),
+            ("Alice channels", self.alice_edit),
+            ("Bob channels", self.bob_edit),
             ("Counts bin width (ms)", self.counts_bin_width_edit),
             ("Counts time frame (s)", self.counts_time_frame_edit),
             ("Coincidence window (ns)", self.coin_window_edit),
@@ -179,7 +202,13 @@ class TimeTaggerSettingsPage(QWidget):
         self.save_button.clicked.connect(self._save_settings)
         self.load_button.clicked.connect(self._load_settings)
         self.reset_button.clicked.connect(self._reset_defaults)
-        for button in (self.apply_button, self.load_device_button, self.save_button, self.load_button, self.reset_button):
+        for button in (
+            self.apply_button,
+            self.load_device_button,
+            self.save_button,
+            self.load_button,
+            self.reset_button,
+        ):
             row.addWidget(button)
         return card
 
@@ -239,7 +268,9 @@ class TimeTaggerSettingsPage(QWidget):
             return
         self._start_hardware_worker("connect")
 
-    def _start_hardware_worker(self, action: str, settings: TimeTaggerSettings | None = None) -> None:
+    def _start_hardware_worker(
+        self, action: str, settings: TimeTaggerSettings | None = None
+    ) -> None:
         self._thread = QThread()
         self._worker = HardwareWorker(self.hardware, action, settings)
         self._worker.moveToThread(self._thread)
@@ -254,7 +285,12 @@ class TimeTaggerSettingsPage(QWidget):
         self._worker.error.connect(self._thread.quit)
         self._thread.finished.connect(self._on_worker_finished)
         self.connect_button.setEnabled(False)
-        labels = {"connect": "Connecting…", "disconnect": "Disconnecting…", "configure_timetagger": "Applying settings…", "read_timetagger_settings": "Reading device…"}
+        labels = {
+            "connect": "Connecting…",
+            "disconnect": "Disconnecting…",
+            "configure_timetagger": "Applying settings…",
+            "read_timetagger_settings": "Reading device…",
+        }
         self.status_label.setText(labels.get(action, "Working…"))
         self._thread.start()
 
@@ -262,7 +298,9 @@ class TimeTaggerSettingsPage(QWidget):
         self._update_device_status()
         self.adapter_ready.emit(adapter)
         self.connection_changed.emit(True)
-        self.status_label.setText("Time Tagger connected. Apply the current settings to configure it.")
+        self.status_label.setText(
+            "Time Tagger connected. Apply the current settings to configure it."
+        )
 
     def _on_disconnected(self) -> None:
         self._update_device_status()
@@ -294,12 +332,14 @@ class TimeTaggerSettingsPage(QWidget):
         channels: list[TimeTaggerChannelSettings] = []
         for row in range(self.channel_table.rowCount()):
             enabled = self.channel_table.cellWidget(row, 0)
-            channels.append(TimeTaggerChannelSettings(
-                channel=int(self.channel_table.item(row, 1).text()),
-                enabled=bool(enabled and enabled.isChecked()),
-                delay_ns=float(self.channel_table.item(row, 2).text()),
-                trigger_level_v=float(self.channel_table.item(row, 3).text()),
-            ))
+            channels.append(
+                TimeTaggerChannelSettings(
+                    channel=int(self.channel_table.item(row, 1).text()),
+                    enabled=bool(enabled and enabled.isChecked()),
+                    delay_ns=float(self.channel_table.item(row, 2).text()),
+                    trigger_level_v=float(self.channel_table.item(row, 3).text()),
+                )
+            )
         return TimeTaggerSettings(
             backend_mode="simulator" if self._selected_backend() == "simulator" else "hardware",
             channel_settings=channels,

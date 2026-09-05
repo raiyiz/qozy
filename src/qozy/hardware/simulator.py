@@ -52,9 +52,7 @@ class SimulatorAdapter:
     def setup_sm(self) -> None:
         pass
 
-    def setup_channel(
-        self, channel: int, delay: float, trigger_level_v: float = 0.1
-    ) -> None:
+    def setup_channel(self, channel: int, delay: float, trigger_level_v: float = 0.1) -> None:
         self._channel_delay_ns[channel] = delay
         self._channel_trigger_v[channel] = trigger_level_v
 
