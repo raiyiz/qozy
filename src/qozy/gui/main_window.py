@@ -21,6 +21,7 @@ from qozy.gui.pages import (
     PolytopePage,
     SettingsPage,
     StateTomographyPage,
+    TimeTaggerSettingsPage,
 )
 from qozy.gui.theme import THEME_ORDER, THEMES, apply_theme
 from qozy.hardware.manager import HardwareManager
@@ -51,21 +52,28 @@ class MainWindow(QMainWindow):
         main.addWidget(self.build_sidebar())
 
         self.pages = QStackedWidget()
-        self.settings_page = SettingsPage(self.hardware, self.config)
+        self.settings_page = SettingsPage(self.config)
+        self.timetagger_settings_page = TimeTaggerSettingsPage(self.hardware, self.config)
         self.polarization_page = PolarizationPage(self.hardware, self.config)
         self.counts_page = CountsPage(hardware=self.hardware, initial=self.config)
-        self.pages.addWidget(self.settings_page)
-        self.pages.addWidget(self.polarization_page)
-        self.pages.addWidget(self.counts_page)
-        self.pages.addWidget(PolytopePage())
-        self.pages.addWidget(HeraldedG2Page())
-        self.pages.addWidget(StateTomographyPage())
+        for page in (
+            self.settings_page,
+            self.timetagger_settings_page,
+            self.polarization_page,
+            self.counts_page,
+            PolytopePage(),
+            HeraldedG2Page(),
+            StateTomographyPage(),
+        ):
+            self.pages.addWidget(page)
         main.addWidget(self.pages, 1)
 
-        self.settings_page.adapter_ready.connect(self.counts_page.set_adapter)
-        self.settings_page.connection_changed.connect(self.counts_page.set_hardware_connected)
+        self.timetagger_settings_page.adapter_ready.connect(self.counts_page.set_adapter)
+        self.timetagger_settings_page.connection_changed.connect(self.counts_page.set_hardware_connected)
+        self.timetagger_settings_page.settings_changed.connect(self.counts_page.set_timetagger_settings)
         self.settings_page.export_dir.textChanged.connect(self.counts_page.set_export_dir)
         self.counts_page.acquisition_changed.connect(self.settings_page.set_busy)
+        self.counts_page.acquisition_changed.connect(self.timetagger_settings_page.set_busy)
         self.counts_page.acquisition_changed.connect(self.polarization_page.set_busy)
 
         self.setCentralWidget(root)
@@ -89,6 +97,7 @@ class MainWindow(QMainWindow):
         self.buttons: list[NavButton] = []
         page_names = [
             "Settings",
+            "Time Tagger",
             "Polarization",
             "Counts",
             "Polytope",
@@ -104,7 +113,7 @@ class MainWindow(QMainWindow):
 
         self.theme_button = QPushButton()
         self.theme_button.setObjectName("Secondary")
-        self.theme_button.setToolTip("Cycle through the four QOZY themes")
+        self.theme_button.setToolTip("Cycle through the QOZY themes")
         self.theme_button.clicked.connect(self.cycle_theme)
         layout.addWidget(self.theme_button)
         return sidebar
@@ -128,9 +137,10 @@ class MainWindow(QMainWindow):
         self.theme_button.setText(f"{label}  →  {next_label}")
 
     def current_config(self) -> AppConfig:
-        """Gather the current Settings/Polarization/Counts field values."""
+        """Gather application, Time Tagger, polarization, and Counts settings."""
         config = AppConfig()
         self.settings_page.export_config(config)
+        self.timetagger_settings_page.export_config(config)
         self.polarization_page.export_config(config)
         self.counts_page.export_config(config)
         return config
