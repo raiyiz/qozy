@@ -165,7 +165,10 @@ control of both polarization stages.
 `AcquisitionWorker` keeps that lifecycle on its worker thread and periodically
 emits the resulting `MeasurementState` to the GUI.
 
-`BellScanController` performs the actual 4×4 scan:
+`BellScanController` performs the actual 4×4 scan, driving
+`HardwareManager.stages["alice"]`/`["bob"]` — whatever backend Polarization
+currently has connected, simulator or Elliptec — rather than page-local
+stage objects, via `CountsPage._bell_scan_stages()`:
 
 1. Configure coincidence measurement.
 2. For each Alice Bell angle, move Alice.
@@ -177,6 +180,23 @@ emits the resulting `MeasurementState` to the GUI.
 
 `ScanWorker` emits each completed cell so the Counts table can update during
 the scan rather than waiting for the final result.
+
+Because the scan drives the same stage objects Polarization's Move/Home/
+preset buttons do, `CountsPage`:
+
+- refuses to start a scan unless both `hardware.stage_connected["alice"]`
+  and `["bob"]` are true, with an inline error naming the Polarization page
+  instead of a confusing failure partway through the scan
+- emits `acquisition_changed` around the scan the same way it does around
+  live acquisition, so `SettingsPage.set_busy()` and
+  `PolarizationPage.set_busy()` both freeze their controls for the
+  duration — a manual Move from Polarization mid-scan would otherwise race
+  the scan's own stage motion on the same physical device
+
+A `CountsPage` built with only a `MeasurementController` (no
+`HardwareManager` — used by a couple of tests) falls back to page-local
+`SimulatorStage` instances instead, since there is no manager to pull real
+stages from.
 
 The simulator has a small angle-dependent coincidence model so the Bell scan
 is useful for development and produces a non-flat example matrix.
@@ -201,7 +221,7 @@ they are not part of the four-theme cycle.
 
 | Area | Status |
 |---|---|
-| Counts | **Implemented** — live acquisition UI, VisPy plot, start/stop, Bell scan, 4×4 matrix, E/S summary |
+| Counts | **Implemented** — live acquisition UI, VisPy plot, start/stop, Bell scan (driving HardwareManager's real stages), 4×4 matrix, E/S summary |
 | Settings | **Implemented** — acquisition backend controls |
 | Polarization | **Implemented** — Alice/Bob stage configuration, motion controls, Bell-angle presets |
 | Time Tagger local | **Implemented** — adapter plus local backend selection |
@@ -230,15 +250,17 @@ measurement interface.
 
 The test suite covers the core math/data/controller/export/app_config code
 without a display, plus PyQt6 smoke tests for the main window, live
-acquisition start/stop, Bell scan, Polarization-page stage controls and
-Bell-angle presets, four-theme cycling, the Settings network-backend field
-enabling/validation, and config persistence across a simulated restart
-(`MainWindow` closed and rebuilt against a temp config path). Time Tagger
-backend tests cover both the local/network adapter factory calls (with the
-vendor SDK mocked) and `HardwareManager`'s reconnection guard, which
-requires the current backend to be disconnected before `select()` can
-change it — the same rule already enforced for the Alice/Bob stage
-backends.
+acquisition start/stop, Bell scan (including that it uses
+`HardwareManager`'s real stages, refuses to start with a stage
+disconnected, and freezes Settings/Polarization for its duration),
+Polarization-page stage controls and Bell-angle presets, four-theme
+cycling, the Settings network-backend field enabling/validation, and
+config persistence across a simulated restart (`MainWindow` closed and
+rebuilt against a temp config path). Time Tagger backend tests cover both
+the local/network adapter factory calls (with the vendor SDK mocked) and
+`HardwareManager`'s reconnection guard, which requires the current backend
+to be disconnected before `select()` can change it — the same rule already
+enforced for the Alice/Bob stage backends.
 
 For GUI tests, `tests/conftest.py` sets `QT_QPA_PLATFORM=offscreen`. CI installs
 the Qt/OpenGL system libraries needed by the offscreen PyQt6 platform, then
@@ -253,12 +275,6 @@ The GitLab and GitHub CI definitions are kept aligned.
 
 ## Remaining design work
 
-The next significant hardware integration step is to have experiment code
-consume the `HardwareManager`'s real Alice/Bob stages directly rather than
-constructing simulator stages locally. That will let a real Bell scan use the
-Elliptec devices configured in Settings while preserving the same
-`BellScanController` interface.
-
-After that, the main open work is experiment-specific measurement logic for
-Polytope, Heralded g2, and state tomography, plus a proper GUI export/save
-workflow.
+The main open work is experiment-specific measurement logic for Polytope,
+Heralded g2, and state tomography, plus a proper GUI export/save workflow
+(the export directory field on Settings is not yet wired to `core/export.py`).

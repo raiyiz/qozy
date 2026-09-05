@@ -90,6 +90,54 @@ def test_counts_page_bell_scan_updates_summary(qapp) -> None:
     assert counts_page.bell_e_label.text() != "E: —"
 
 
+def test_counts_page_bell_scan_uses_hardware_manager_stages(qapp) -> None:
+    window = MainWindow(qapp)
+    counts_page = window.pages.widget(2)
+
+    alice_stage, bob_stage = counts_page._bell_scan_stages()
+    assert alice_stage is window.hardware.stages["alice"]
+    assert bob_stage is window.hardware.stages["bob"]
+
+
+def test_counts_page_bell_scan_requires_connected_stages(qapp) -> None:
+    window = MainWindow(qapp)
+    counts_page = window.pages.widget(2)
+    polarization_page = window.pages.widget(1)
+
+    polarization_page._toggle_stage_connection("alice")
+    _pump(qapp, 0.25)
+    assert not window.hardware.stage_connected["alice"]
+
+    counts_page._run_bell_scan()
+
+    assert counts_page.status_label.text().startswith(
+        "Error: connect both polarization stages"
+    )
+    assert counts_page._scan_thread is None
+
+
+def test_counts_page_bell_scan_freezes_settings_and_polarization(qapp) -> None:
+    window = MainWindow(qapp)
+    counts_page = window.pages.widget(2)
+    polarization_page = window.pages.widget(1)
+    settings_page = window.pages.widget(0)
+
+    counts_page._run_bell_scan()
+    assert not settings_page.connect_button.isEnabled()
+    assert not polarization_page._stage_widgets["alice"]["connect"].isEnabled()
+    assert not polarization_page._stage_widgets["bob"]["connect"].isEnabled()
+
+    for _ in range(50):
+        qapp.processEvents()
+        if counts_page.status_label.text() == "Scan complete":
+            break
+        time.sleep(0.05)
+
+    assert settings_page.connect_button.isEnabled()
+    assert polarization_page._stage_widgets["alice"]["connect"].isEnabled()
+    assert polarization_page._stage_widgets["bob"]["connect"].isEnabled()
+
+
 def test_polarization_page_controls_simulator_polarization_stages(qapp) -> None:
     window = MainWindow(qapp)
     polarization_page = window.pages.widget(1)

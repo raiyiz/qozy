@@ -27,7 +27,7 @@ from qozy.gui.components import Card
 from qozy.gui.plot_panel import PlotPanel
 from qozy.gui.scan_worker import make_scan_thread
 from qozy.gui.worker import make_worker_thread
-from qozy.hardware.base import MeasurementAdapter
+from qozy.hardware.base import MeasurementAdapter, PositionerAdapter
 from qozy.hardware.manager import HardwareManager
 from qozy.hardware.simulator import SimulatorAdapter, SimulatorStage
 from qozy.hardware.timetagger_adapter import TimeTaggerAdapter
@@ -62,8 +62,14 @@ class CountsPage(QWidget):
             raise ValueError("CountsPage requires a HardwareManager or MeasurementController")
 
         self._hardware_connected = hardware is None or hardware.connected
-        self.alice_stage = SimulatorStage()
-        self.bob_stage = SimulatorStage()
+        # The Bell scan drives the real Alice/Bob stages from HardwareManager
+        # (simulator or Elliptec, whatever Polarization currently has
+        # connected) so it exercises the same hardware Polarization controls
+        # by hand. Without a HardwareManager (controller-only construction,
+        # used in a couple of tests) fall back to page-local simulator
+        # stages so the scan still has something to drive.
+        self._fallback_alice_stage = SimulatorStage() if hardware is None else None
+        self._fallback_bob_stage = SimulatorStage() if hardware is None else None
         self._thread = None
         self._worker = None
         self._scan_thread = None
@@ -287,12 +293,30 @@ class CountsPage(QWidget):
     def _on_error(self, message: str) -> None:
         self.status_label.setText(f"Error: {message}")
 
+    def _bell_scan_stages(self) -> tuple[PositionerAdapter, PositionerAdapter]:
+        """The stages to drive for a scan: the real ones from HardwareManager
+        when we have one, so the scan reflects whatever Polarization
+        currently has connected (simulator or Elliptec)."""
+        if self.hardware is not None:
+            return self.hardware.stages["alice"], self.hardware.stages["bob"]
+        assert self._fallback_alice_stage is not None
+        assert self._fallback_bob_stage is not None
+        return self._fallback_alice_stage, self._fallback_bob_stage
+
     def _run_bell_scan(self) -> None:
+        if self.hardware is not None and not (
+            self.hardware.stage_connected["alice"] and self.hardware.stage_connected["bob"]
+        ):
+            self.status_label.setText(
+                "Error: connect both polarization stages on the Polarization "
+                "page before running a Bell scan"
+            )
+            return
+
         alice = [c.channel for c in _parse_channels(self.alice_edit.text())]
         bob = [c.channel for c in _parse_channels(self.bob_edit.text())]
-        scan = BellScanController(
-            self.controller.adapter, self.alice_stage, self.bob_stage, alice, bob
-        )
+        alice_stage, bob_stage = self._bell_scan_stages()
+        scan = BellScanController(self.controller.adapter, alice_stage, bob_stage, alice, bob)
         self._scan_thread, self._scan_worker = make_scan_thread(scan)
         self._scan_worker.cell_done.connect(self._on_scan_cell)
         self._scan_worker.finished.connect(self._on_scan_finished)
@@ -302,6 +326,9 @@ class CountsPage(QWidget):
         self.scan_button.setEnabled(False)
         self.start_button.setEnabled(False)
         self.status_label.setText("Running Bell scan…")
+        # freezes Settings/Polarization controls too, since the scan now
+        # drives the same stage objects those pages' Move/Home buttons do
+        self.acquisition_changed.emit(True)
 
     def _on_scan_cell(self, row: int, col: int, value: float) -> None:
         self.bell_table.setItem(row, col, QTableWidgetItem(f"{value:.0f}"))
@@ -325,3 +352,4 @@ class CountsPage(QWidget):
             self._scan_thread.wait()
         self.scan_button.setEnabled(self._hardware_connected)
         self.start_button.setEnabled(self._hardware_connected)
+        self.acquisition_changed.emit(False)

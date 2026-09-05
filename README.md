@@ -88,6 +88,11 @@ Alice and Bob through the four Bell-analysis angle settings, integrates the
 coincidence signal for each of the 16 combinations, fills the coincidence
 matrix as cells complete, and evaluates the resulting E/S values.
 
+The scan drives the same Alice/Bob stages configured on the Polarization
+page (simulator or real Elliptec hardware), so it requires both stages to
+be connected first, and it freezes Settings/Polarization controls for its
+duration to avoid a manual move racing the scan on the same device.
+
 The simulator stages and simulator measurement adapter make this workflow
 runnable without hardware.
 
@@ -101,9 +106,11 @@ GUI smoke tests use `QT_QPA_PLATFORM=offscreen` (configured in
 `tests/conftest.py`), so the PyQt6 shell can be exercised without a display.
 The suite also covers Time Tagger backend behavior (including the network
 backend and the connect/disconnect reconfiguration guard), simulator
-polarization stages and Bell-angle presets on the Polarization page,
-Settings acquisition controls, config persistence across a simulated
-restart, and the four-theme cycling behavior.
+polarization stages and Bell-angle presets on the Polarization page, the
+Bell scan driving HardwareManager's real stages (including its
+connected-stage guard and cross-page freeze), Settings acquisition
+controls, config persistence across a simulated restart, and the
+four-theme cycling behavior.
 
 ## Lint
 
