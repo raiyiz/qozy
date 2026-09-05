@@ -1,8 +1,8 @@
 # QOZY
 
-SPDC / Bell-test measurement GUI — PyQt6 shell with a VisPy live-plotting
-canvas, ported from the older PyQt5 + pyqtgraph/matplotlib prototype. See
-`docs/architecture.md` for the module layout and porting status.
+SPDC / Bell-test measurement GUI built with PyQt6 and VisPy, ported from
+the older PyQt5 + pyqtgraph/matplotlib prototype. See
+`docs/architecture.md` for the current module layout and hardware model.
 
 ## Install (uv)
 
@@ -10,20 +10,68 @@ canvas, ported from the older PyQt5 + pyqtgraph/matplotlib prototype. See
 uv sync --extra dev
 ```
 
-This creates `.venv/` and installs the project plus dev tools (pytest,
-pytest-qt, ruff) from `uv.lock`. Plain `pip install -e ".[dev]"` also
-works if you'd rather not use uv.
+This creates `.venv/` and installs QOZY plus the development tools
+(`pytest`, `pytest-qt`, and `ruff`) from `uv.lock`. Plain
+`pip install -e ".[dev]"` also works if you prefer pip.
+
+The `elliptec` package is a normal runtime dependency because the Settings
+page supports real Thorlabs Elliptec stages. The Swabian Instruments
+TimeTagger SDK remains optional for simulator-only development and CI.
 
 ## Run
 
 ```bash
 uv run qozy
-# or: uv run python -m qozy.app
+# or
+uv run python -m qozy.app
 ```
 
-Runs against a built-in data simulator by default — no TimeTagger hardware
-required. Swapping in the real adapter is a one-line change in
-`src/qozy/app.py` (see `docs/architecture.md`).
+QOZY starts with the simulator connected by default, so the application and
+GUI can be exercised without hardware.
+
+The **Settings** page provides independent configuration for the acquisition
+backend and the Alice/Bob polarization stages. Acquisition supports:
+
+- Simulator
+- Time Tagger (local USB)
+- Time Tagger (network, using a `host:port` server address)
+
+Each polarization stage supports:
+
+- Simulator
+- Elliptec, with serial port and device/bus address
+- Connect / disconnect
+- Move to an absolute angle
+- Home
+- Read the current angle
+
+Hardware connection and motion calls are performed on background Qt worker
+threads so vendor-library calls do not run on the GUI thread.
+
+## Themes
+
+The sidebar theme control cycles through four presets:
+
+`Classic Light → Classic Dark → Soft Dark → Soft Light`
+
+The classic pair uses stronger contrast and a more technical appearance.
+The soft pair uses quieter surfaces, softer borders, gentler text hierarchy,
+and slightly roomier controls. The four presets share the same semantic
+color roles and widget styling, but tune colors, typography, spacing, and
+corner radii differently.
+
+## Measurement and Bell scan
+
+The Counts page can run live acquisition through `MeasurementController`
+and displays the current counter/correlation data in a VisPy panel.
+
+The **Run Bell scan** action is a separate 4×4 polarization scan. It moves
+Alice and Bob through the four Bell-analysis angle settings, integrates the
+coincidence signal for each of the 16 combinations, fills the coincidence
+matrix as cells complete, and evaluates the resulting E/S values.
+
+The simulator stages and simulator measurement adapter make this workflow
+runnable without hardware.
 
 ## Test
 
@@ -31,11 +79,10 @@ required. Swapping in the real adapter is a one-line change in
 uv run pytest
 ```
 
-`core/` and `hardware/` tests run headless with no display needed.
-`tests/test_gui_smoke.py` builds the real PyQt6 window and drives the
-Counts page's start/stop cycle; it runs with `QT_QPA_PLATFORM=offscreen`
-automatically (set in `tests/conftest.py`), so no display server is
-required locally or in CI.
+GUI smoke tests use `QT_QPA_PLATFORM=offscreen` (configured in
+`tests/conftest.py`), so the PyQt6 shell can be exercised without a display.
+The suite also covers Time Tagger backend behavior, simulator polarization
+stages, Settings-stage controls, and the four-theme cycling behavior.
 
 ## Lint
 
@@ -83,5 +130,3 @@ fill it with this content:
 `SUBSYSTEM=="usb", ATTR{idVendor}=="1234", ATTR{idProduct}=="5678", GROUP="qozy", MODE="0660"`
  
 4. logout-login again
-
-
