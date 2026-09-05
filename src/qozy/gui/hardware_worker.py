@@ -4,18 +4,26 @@ from __future__ import annotations
 
 from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot
 
+from qozy.core.data_model import TimeTaggerSettings
 from qozy.hardware.manager import HardwareManager, StageName
 
 
 class HardwareWorker(QObject):
     connected = pyqtSignal(object)
     disconnected = pyqtSignal()
+    result = pyqtSignal(object)
     error = pyqtSignal(str)
 
-    def __init__(self, manager: HardwareManager, action: str) -> None:
+    def __init__(
+        self,
+        manager: HardwareManager,
+        action: str,
+        settings: TimeTaggerSettings | None = None,
+    ) -> None:
         super().__init__()
         self.manager = manager
         self.action = action
+        self.settings = settings
 
     @pyqtSlot()
     def run(self) -> None:
@@ -25,6 +33,13 @@ class HardwareWorker(QObject):
             elif self.action == "disconnect":
                 self.manager.disconnect()
                 self.disconnected.emit()
+            elif self.action == "configure_timetagger":
+                if self.settings is None:
+                    raise ValueError("No Time Tagger settings supplied")
+                self.manager.configure_timetagger(self.settings)
+                self.result.emit(self.settings)
+            elif self.action == "read_timetagger_settings":
+                self.result.emit(self.manager.read_timetagger_settings())
             else:  # pragma: no cover - only constructed internally
                 raise ValueError(f"Unknown hardware action: {self.action}")
         except Exception as exc:  # noqa: BLE001 - hardware errors belong in the UI
