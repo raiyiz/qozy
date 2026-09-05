@@ -21,8 +21,6 @@ from qozy.gui.pages import (
     PolytopePage,
     SettingsPage,
     StateTomographyPage,
-    TimeTaggerSettingsPage,
-from qozy.gui.pages import CountsPage, HeraldedG2Page, PolytopePage, SettingsPage, StateTomographyPage
 )
 from qozy.gui.theme import THEME_ORDER, THEMES, apply_theme
 from qozy.hardware.manager import HardwareManager
@@ -39,8 +37,8 @@ class MainWindow(QMainWindow):
         self.config = load_config()
 
         icon_path = Path(__file__).resolve().parent / "icons" / "logo.png"
-        if icon_path.exists():
-            self.setWindowIcon(QIcon(str(icon_path)))
+        icon = QIcon(str(icon_path)) if icon_path.exists() else QIcon()
+        self.setWindowIcon(icon)
         self.setWindowTitle("QOZY")
         self.resize(1180, 760)
         self.setMinimumSize(920, 600)
@@ -53,20 +51,15 @@ class MainWindow(QMainWindow):
         main.addWidget(self.build_sidebar())
 
         self.pages = QStackedWidget()
-        for page in (
-            SettingsPage(),
-            TimeTaggerSettingsPage(),
-            CountsPage(),
-            PolytopePage(),
-            HeraldedG2Page(),
-            StateTomographyPage(),
-        ):
-            self.settings_page = SettingsPage(self.hardware)
-            self.counts_page = CountsPage(hardware=self.hardware)
-            self.pages.addWidget(self.settings_page)
-            self.pages.addWidget(self.counts_page)
-        for page in (PolytopePage(), HeraldedG2Page(), StateTomographyPage()):
-            self.pages.addWidget(page)
+        self.settings_page = SettingsPage(self.hardware, self.config)
+        self.polarization_page = PolarizationPage(self.hardware, self.config)
+        self.counts_page = CountsPage(hardware=self.hardware, initial=self.config)
+        self.pages.addWidget(self.settings_page)
+        self.pages.addWidget(self.polarization_page)
+        self.pages.addWidget(self.counts_page)
+        self.pages.addWidget(PolytopePage())
+        self.pages.addWidget(HeraldedG2Page())
+        self.pages.addWidget(StateTomographyPage())
         main.addWidget(self.pages, 1)
 
         self.settings_page.adapter_ready.connect(self.counts_page.set_adapter)
@@ -93,17 +86,16 @@ class MainWindow(QMainWindow):
         layout.addWidget(brand)
         layout.addSpacing(20)
 
-        self.buttons = []
-        for i, text in enumerate(
-            [
-                "Settings",
-                "TimeTagger Settings",
-                "Counts",
-                "Polytope",
-                "Heralded g2",
-                "State tomography",
-            ]
-        ):
+        self.buttons: list[NavButton] = []
+        page_names = [
+            "Settings",
+            "Polarization",
+            "Counts",
+            "Polytope",
+            "Heralded g2",
+            "State tomography",
+        ]
+        for i, text in enumerate(page_names):
             button = NavButton(text, i)
             button.clicked.connect(lambda checked=False, idx=i: self.select_page(idx))
             self.buttons.append(button)
@@ -130,7 +122,7 @@ class MainWindow(QMainWindow):
         self._update_theme_button()
 
     def _update_theme_button(self) -> None:
-        label, _colors = THEMES[self.mode]
+        label, _ = THEMES[self.mode]
         next_index = (self.theme_index + 1) % len(self.theme_modes)
         next_label, _ = THEMES[self.theme_modes[next_index]]
         self.theme_button.setText(f"{label}  →  {next_label}")
