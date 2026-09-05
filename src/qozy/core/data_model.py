@@ -1,10 +1,5 @@
-"""Configuration and live-state objects shared by the controller, the
-hardware/simulator adapters, and the GUI.
-
-Keeping these as plain dataclasses (no PyQt, no numpy required beyond
-arrays already computed elsewhere) means the controller and adapters can be
-exercised in tests without a display.
-"""
+"""Configuration and live-state objects shared by the controller, hardware,
+and GUI layers."""
 
 from __future__ import annotations
 
@@ -21,25 +16,15 @@ class ChannelConfig:
 
 @dataclass
 class MeasurementConfig:
-    """Everything needed to (re)configure an acquisition.
-
-    Units match the original ``timetaggerlive.py`` conventions:
-    - ``counts_bin_width_ms`` / ``counts_time_frame_s`` for the Counter
-    - ``coincidence_window_ns`` for Coincidences
-    - ``correlation_bin_width_ns`` / ``correlation_time_frame_ns`` for Correlation
-    """
+    """Everything needed to configure a measurement controller."""
 
     alice_channels: list[ChannelConfig] = field(default_factory=list)
     bob_channels: list[ChannelConfig] = field(default_factory=list)
-
     counts_bin_width_ms: float = 100.0
     counts_time_frame_s: float = 5.0
-
     coincidence_window_ns: float = 2.0
-
     correlation_bin_width_ns: float = 1.0
     correlation_time_frame_ns: float = 1000.0
-
     live_acquisition: bool = False
 
     def all_channel_numbers(self) -> list[int]:
@@ -48,8 +33,6 @@ class MeasurementConfig:
 
 @dataclass
 class MeasurementState:
-    """Latest data pulled from the adapter, ready for plotting/summary."""
-
     counter_data: object | None = None
     corr_data: object | None = None
     countrate_data: object | None = None
@@ -60,7 +43,7 @@ class MeasurementState:
 
 @dataclass
 class TimeTaggerChannelSettings:
-    """Configurable per-channel TimeTagger settings."""
+    """Configurable per-channel Time Tagger settings."""
 
     channel: int
     enabled: bool = True
@@ -70,7 +53,7 @@ class TimeTaggerChannelSettings:
 
 @dataclass
 class TimeTaggerSettings:
-    """Config values exposed on the TimeTagger Settings page."""
+    """All device/measurement settings owned by TimeTaggerSettingsPage."""
 
     backend_mode: str = "simulator"
     channel_settings: list[TimeTaggerChannelSettings] = field(
@@ -120,12 +103,18 @@ class TimeTaggerSettings:
         if self.measure_time_frame_s <= 0:
             errors.append("Measure time frame must be > 0.")
         seen: set[int] = set()
-        for ch in self.channel_settings:
-            if ch.channel in seen:
-                errors.append(f"Channel {ch.channel} appears more than once in channel settings.")
-            seen.add(ch.channel)
-            if ch.delay_ns < 0:
-                errors.append(f"Channel {ch.channel} delay must be >= 0.")
-            if ch.trigger_level_v <= 0:
-                errors.append(f"Channel {ch.channel} trigger level must be > 0.")
+        for channel in self.channel_settings:
+            if channel.channel <= 0:
+                errors.append(f"Channel {channel.channel} must be > 0.")
+            if channel.channel in seen:
+                errors.append(f"Channel {channel.channel} appears more than once in channel settings.")
+            seen.add(channel.channel)
+            if channel.delay_ns < 0:
+                errors.append(f"Channel {channel.channel} delay must be >= 0.")
+            if channel.trigger_level_v <= 0:
+                errors.append(f"Channel {channel.channel} trigger level must be > 0.")
+        enabled = set(self.enabled_channels())
+        missing = sorted((set(self.alice_channels) | set(self.bob_channels)) - enabled)
+        if missing:
+            errors.append(f"Acquisition channels must be enabled: {missing}.")
         return errors
