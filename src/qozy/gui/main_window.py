@@ -22,6 +22,7 @@ from qozy.gui.pages import (
     TimeTaggerSettingsPage,
 )
 from qozy.gui.theme import apply_theme
+from qozy.hardware.manager import HardwareManager
 
 
 class MainWindow(QMainWindow):
@@ -29,6 +30,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.app = app
         self.mode = "light"
+        self.hardware = HardwareManager()
 
         icon_path = Path(__file__).resolve().parent / "icons" / "logo.png"
         if icon_path.exists():
@@ -53,8 +55,16 @@ class MainWindow(QMainWindow):
             HeraldedG2Page(),
             StateTomographyPage(),
         ):
+            self.settings_page = SettingsPage(self.hardware)
+            self.counts_page = CountsPage(hardware=self.hardware)
+            self.pages.addWidget(self.settings_page)
+            self.pages.addWidget(self.counts_page)
+        for page in (PolytopePage(), HeraldedG2Page(), StateTomographyPage()):
             self.pages.addWidget(page)
         main.addWidget(self.pages, 1)
+
+        self.settings_page.adapter_ready.connect(self.counts_page.set_adapter)
+        self.counts_page.acquisition_changed.connect(self.settings_page.set_busy)
 
         self.setCentralWidget(root)
         self.select_page(0)
