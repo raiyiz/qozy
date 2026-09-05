@@ -1,64 +1,73 @@
-"""Polls a MeasurementController on a background QThread and emits the
-results, so the main window's paint/event loop never blocks on hardware
-(or simulator) I/O.
-
-This mirrors plan.md's "Qt worker threads for live acquisition" step: the
-worker only touches the controller/adapter; the main window only touches
-the emitted signal, never the adapter directly.
-"""
+"""Background acquisition worker for MeasurementController."""
 
 from __future__ import annotations
 
-from PyQt6.QtCore import QObject, QThread, QTimer, pyqtSignal, pyqtSlot
+import threading
+
+from PyQt6.QtCore import QObject, QThread, pyqtSignal, pyqtSlot
 
 from qozy.core.controller import MeasurementController
 from qozy.core.data_model import MeasurementState
 
 
 class AcquisitionWorker(QObject):
-    data_ready = pyqtSignal(object)  # emits MeasurementState
+    """Own the complete measurement lifecycle on a background thread.
+
+    The worker deliberately does not use a Qt timer. Its acquisition loop is
+    synchronous inside the worker thread, while ``request_stop`` is safe to
+    call directly from the GUI because it only sets a thread-safe Event.
+    """
+
+    data_ready = pyqtSignal(object)
     error = pyqtSignal(str)
+    started = pyqtSignal()
+    stopped = pyqtSignal()
 
     def __init__(self, controller: MeasurementController, interval_ms: int = 100) -> None:
         super().__init__()
         self.controller = controller
-        self.interval_ms = interval_ms
-        self._timer: QTimer | None = None
+        self.interval_s = interval_ms / 1000.0
+        self._stop_event = threading.Event()
+        self._started = False
+
+    def request_stop(self) -> None:
+        """Request stop from any thread without relying on Qt event dispatch."""
+        self._stop_event.set()
 
     @pyqtSlot()
     def start(self) -> None:
-        """Must run on this worker's own thread — the QTimer it creates is
-        bound to whatever thread calls this. Only ever invoke via the
-        ``thread.started`` signal (see ``make_worker_thread``), never
-        directly from the GUI thread."""
-        self._timer = QTimer()
-        self._timer.timeout.connect(self._poll)
-        self._timer.start(self.interval_ms)
-
-    @pyqtSlot()
-    def stop(self) -> None:
-        """Same rule as ``start``: call this via a queued cross-thread
-        signal/slot connection (or QMetaObject.invokeMethod), never
-        directly — see ``CountsPage._stop``."""
-        if self._timer is not None:
-            self._timer.stop()
-
-    def _poll(self) -> None:
-        try:
-            state: MeasurementState = self.controller.poll()
-        except Exception as exc:  # noqa: BLE001 - any adapter/hardware failure should
-            # surface in the UI via `error`, not crash the polling thread silently
-            self.error.emit(str(exc))
+        """Run the controller lifecycle entirely on the worker thread."""
+        if self._started:
             return
-        self.data_ready.emit(state)
+        self._started = True
+        controller_started = False
+        try:
+            self.controller.start()
+            controller_started = True
+            self.started.emit()
+
+            while not self._stop_event.is_set():
+                state: MeasurementState = self.controller.poll()
+                self.data_ready.emit(state)
+                self._stop_event.wait(self.interval_s)
+        except Exception as exc:  # noqa: BLE001 - hardware errors belong in the UI
+            self.error.emit(str(exc))
+        finally:
+            try:
+                if controller_started:
+                    self.controller.stop()
+            except Exception as exc:  # noqa: BLE001 - report hardware stop failures
+                self.error.emit(str(exc))
+            self.stopped.emit()
 
 
 def make_worker_thread(
     controller: MeasurementController, interval_ms: int = 100
 ) -> tuple[QThread, AcquisitionWorker]:
-    """Create a worker + thread pair; caller owns starting/stopping both."""
+    """Create a worker + thread pair; caller owns the returned objects."""
     thread = QThread()
     worker = AcquisitionWorker(controller, interval_ms)
     worker.moveToThread(thread)
     thread.started.connect(worker.start)
+    worker.stopped.connect(thread.quit)
     return thread, worker

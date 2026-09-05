@@ -1,8 +1,8 @@
 # QOZY
 
-SPDC / Bell-test measurement GUI — PyQt6 shell with a VisPy live-plotting
-canvas, ported from the older PyQt5 + pyqtgraph/matplotlib prototype. See
-`docs/architecture.md` for the module layout and porting status.
+SPDC / Bell-test measurement GUI built with PyQt6 and VisPy, ported from
+the older PyQt5 + pyqtgraph/matplotlib prototype. See
+`docs/architecture.md` for the current module layout and hardware model.
 
 ## Install (uv)
 
@@ -10,20 +10,100 @@ canvas, ported from the older PyQt5 + pyqtgraph/matplotlib prototype. See
 uv sync --extra dev
 ```
 
-This creates `.venv/` and installs the project plus dev tools (pytest,
-pytest-qt, ruff) from `uv.lock`. Plain `pip install -e ".[dev]"` also
-works if you'd rather not use uv.
+This creates `.venv/` and installs QOZY plus the development tools
+(`pytest`, `pytest-qt`, and `ruff`) from `uv.lock`. Plain
+`pip install -e ".[dev]"` also works if you prefer pip.
+
+The `elliptec` package is a normal runtime dependency because the
+Polarization page supports real Thorlabs Elliptec stages. The Swabian
+Instruments TimeTagger SDK remains optional for simulator-only development
+and CI.
 
 ## Run
 
 ```bash
 uv run qozy
-# or: uv run python -m qozy.app
+# or
+uv run python -m qozy.app
 ```
 
-Runs against a built-in data simulator by default — no TimeTagger hardware
-required. Swapping in the real adapter is a one-line change in
-`src/qozy/app.py` (see `docs/architecture.md`).
+QOZY starts with the simulator connected by default, so the application and
+GUI can be exercised without hardware.
+
+The **Settings** page configures the acquisition backend and export
+directory:
+
+- Simulator
+- Time Tagger (local USB)
+- Time Tagger (network, using a `host:port` server address)
+
+The **Polarization** page configures and moves the Alice and Bob stages
+used by the Counts page's Bell scan. Each stage supports:
+
+- Simulator
+- Elliptec, with serial port and device/bus address
+- Connect / disconnect
+- Move to an absolute angle, or one tap on a Bell-angle preset
+  (0°, 22.5°, 67.5°, 112.5°, 157.5° — the same settings `BellScanController`
+  scans through)
+- Home
+- Read the current angle
+
+Hardware connection and motion calls are performed on background Qt worker
+threads so vendor-library calls do not run on the GUI thread.
+
+## Settings persistence
+
+Settings, Polarization, and Counts field values (acquisition backend and
+network address, export directory, each stage's backend/port/address, the
+Alice/Bob detector channels, and the auto-save-after-scan preference) are
+saved to `~/.qozy/config.json` when the window closes, and reloaded to
+pre-fill those same fields the next time QOZY starts. Only the
+*selections* persist, never live connection state — QOZY always
+starts with the simulator connected (acquisition and both stages), and
+switching to a real backend still needs its Connect button pressed, so a
+stale saved address can never cause an unattended connection attempt to
+real hardware.
+A missing or corrupt config file is treated like a first run rather than an
+error.
+
+## Themes
+
+The sidebar theme control cycles through four presets:
+
+`Classic Light → Classic Dark → Soft Dark → Soft Light`
+
+The classic pair uses stronger contrast and a more technical appearance.
+The soft pair uses quieter surfaces, softer borders, gentler text hierarchy,
+and slightly roomier controls. The four presets share the same semantic
+color roles and widget styling, but tune colors, typography, spacing, and
+corner radii differently.
+
+## Measurement and Bell scan
+
+The Counts page can run live acquisition through `MeasurementController`
+and displays the current counter/correlation data in a VisPy panel.
+
+The **Run Bell scan** action is a separate 4×4 polarization scan. It moves
+Alice and Bob through the four Bell-analysis angle settings, integrates the
+coincidence signal for each of the 16 combinations, fills the coincidence
+matrix as cells complete, and evaluates the resulting E/S values.
+
+The scan drives the same Alice/Bob stages configured on the Polarization
+page (simulator or real Elliptec hardware), so it requires both stages to
+be connected first, and it freezes Settings/Polarization controls for its
+duration to avoid a manual move racing the scan on the same device.
+
+The simulator stages and simulator measurement adapter make this workflow
+runnable without hardware.
+
+Once a scan finishes, **Save scan** writes the 4×4 coincidence matrix to
+Settings' export directory as a tab-delimited `.txt` file, in a
+`year/month/day/NN.txt` folder structure (`NN` is the first free two-digit
+number that day). Checking **Auto-save after scan** saves it there
+automatically as soon as the scan completes, no click needed. The saved
+path (or a save error, e.g. a full day folder) is reported in the status
+line.
 
 ## Test
 
@@ -31,11 +111,15 @@ required. Swapping in the real adapter is a one-line change in
 uv run pytest
 ```
 
-`core/` and `hardware/` tests run headless with no display needed.
-`tests/test_gui_smoke.py` builds the real PyQt6 window and drives the
-Counts page's start/stop cycle; it runs with `QT_QPA_PLATFORM=offscreen`
-automatically (set in `tests/conftest.py`), so no display server is
-required locally or in CI.
+GUI smoke tests use `QT_QPA_PLATFORM=offscreen` (configured in
+`tests/conftest.py`), so the PyQt6 shell can be exercised without a display.
+The suite also covers Time Tagger backend behavior (including the network
+backend and the connect/disconnect reconfiguration guard), simulator
+polarization stages and Bell-angle presets on the Polarization page, the
+Bell scan driving HardwareManager's real stages (including its
+connected-stage guard and cross-page freeze), saving and auto-saving a
+completed scan, Settings acquisition controls, config persistence across a
+simulated restart, and the four-theme cycling behavior.
 
 ## Lint
 
@@ -83,5 +167,3 @@ fill it with this content:
 `SUBSYSTEM=="usb", ATTR{idVendor}=="1234", ATTR{idProduct}=="5678", GROUP="qozy", MODE="0660"`
  
 4. logout-login again
-
-

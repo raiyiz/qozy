@@ -1,15 +1,12 @@
 """Swabian Instruments TimeTagger adapter.
 
-Ported from ``old_spdc_to_port/spdc/timetaggerlive.py`` (originally by
-Ilija Funk). Behavior is unchanged; it's now a proper class implementing
-``MeasurementAdapter`` so the controller can swap it for
-``qozy.hardware.simulator.SimulatorAdapter`` without any other code
-changing.
+The adapter is intentionally agnostic about where the Time Tagger comes from:
+``address=None`` creates a local USB Time Tagger, while a server address uses
+Network Time Tagger. Both expose the same SDK measurement API, so the rest of
+QOZY does not need to care about the transport.
 
-The ``TimeTagger`` SDK is imported lazily inside ``connect()`` rather than
-at module level, since it's a vendor package (not on PyPI) that won't be
-installed on every dev machine or in CI. Importing this module is always
-safe; only ``connect()`` requires the SDK to actually be present.
+The vendor SDK is imported lazily in ``connect()`` because it is an optional
+hardware dependency and is not needed for simulator-only development/CI.
 """
 
 from __future__ import annotations
@@ -20,7 +17,8 @@ from qozy.core.data_model import TimeTaggerChannelSettings, TimeTaggerSettings
 
 
 class TimeTaggerAdapter:
-    def __init__(self) -> None:
+    def __init__(self, address: str | None = None) -> None:
+        self.address = address
         self.tagger = None
         self.sm = None
         self.sm_tagger = None
@@ -38,6 +36,7 @@ class TimeTaggerAdapter:
         self._last_coincidence_window_ns = 2.0
         self._last_correlation_bin_width_ns = 1.0
         self._last_correlation_time_frame_ns = 1000.0
+        self._TimeTagger = None
 
     def connect(self) -> None:
         try:
@@ -50,7 +49,13 @@ class TimeTaggerAdapter:
             ) from exc
 
         self._TimeTagger = TimeTagger
-        self.tagger = TimeTagger.createTimeTagger()
+        if self.address:
+            # Current Network Time Tagger accepts a list of server addresses;
+            # keeping this as a one-element list leaves room for multi-server
+            # support later without changing the adapter interface.
+            self.tagger = TimeTagger.createTimeTaggerNetwork([self.address])
+        else:
+            self.tagger = TimeTagger.createTimeTagger()
         self._connected = True
 
     def disconnect(self) -> None:
@@ -58,6 +63,8 @@ class TimeTaggerAdapter:
             self._TimeTagger.freeTimeTagger(self.tagger)
         self.tagger = None
         self._connected = False
+        self.sm = None
+        self.sm_tagger = None
 
     def is_connected(self) -> bool:
         return self._connected and self.tagger is not None
@@ -72,9 +79,7 @@ class TimeTaggerAdapter:
         self.sm = self._TimeTagger.SynchronizedMeasurements(self.tagger)
         self.sm_tagger = self.sm.getTagger()
 
-    def setup_channel(
-        self, channel: int, delay: float, trigger_level_v: float = 0.1
-    ) -> None:
+    def setup_channel(self, channel: int, delay: float, trigger_level_v: float = 0.1) -> None:
         """``delay`` is in ns."""
         self.tagger.setTriggerLevel(channel, trigger_level_v)
         self.tagger.setInputDelay(channel, delay * 1e3)
@@ -147,7 +152,7 @@ class TimeTaggerAdapter:
             new_values = np.array(corr.getData())
             new_index = np.array(corr.getIndex())
             new_datas.append(np.vstack((new_index, new_values)))
-            corr.clear()  # the buffer accumulates over time otherwise
+            corr.clear()
         return new_datas
 
     def get_countrate_data(self) -> np.ndarray:

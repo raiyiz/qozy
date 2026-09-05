@@ -22,9 +22,6 @@ dev = [
   "pytest-qt>=4.4",
   "ruff>=0.6.0",
 ]
-hardware = [
-  # Hardware-only extras can be added here later.
-]
 
 [project.scripts]
 qozy = "qozy.app:main"

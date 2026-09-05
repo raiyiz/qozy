@@ -1,26 +1,20 @@
-"""TODO: wire to real app settings (data export directory, TimeTagger vs
-simulator backend, theme). Currently a placeholder carried over from the
-modern_pyqt_starter template — see plan.md, this isn't in scope until the
-core Counts/Bell flow (Phases 1-5) is done.
-"""
+"""General application settings."""
 
-from PyQt6.QtWidgets import (
-    QCheckBox,
-    QComboBox,
-    QFormLayout,
-    QLabel,
-    QLineEdit,
-    QPushButton,
-    QVBoxLayout,
-    QWidget,
-)
+from __future__ import annotations
 
+from PyQt6.QtWidgets import QFormLayout, QLabel, QLineEdit, QVBoxLayout, QWidget
+
+from qozy.core.app_config import AppConfig
 from qozy.gui.components import Card
 
 
 class SettingsPage(QWidget):
-    def __init__(self) -> None:
+    """Application-level settings that are not Time Tagger or polarization hardware."""
+
+    def __init__(self, initial: AppConfig | None = None) -> None:
         super().__init__()
+        initial = initial or AppConfig()
+
         root = QVBoxLayout(self)
         root.setContentsMargins(32, 28, 32, 28)
         root.setSpacing(18)
@@ -34,17 +28,23 @@ class SettingsPage(QWidget):
         form.setContentsMargins(20, 20, 20, 20)
         form.setSpacing(16)
 
-        backend = QComboBox()
-        backend.addItems(["Simulator", "TimeTagger (hardware)"])
-        export_dir = QLineEdit("~/qozy_data")
-        notifications = QCheckBox("Enable desktop notifications")
+        self.export_dir = QLineEdit(initial.export_dir)
+        self.export_dir.setPlaceholderText("~/qozy_data")
+        form.addRow("Export directory", self.export_dir)
 
-        form.addRow("Acquisition backend", backend)
-        form.addRow("Export directory", export_dir)
-        form.addRow("", notifications)
+        note = QLabel(
+            "Time Tagger connection, detector channels, timing, trigger levels, "
+            "and acquisition parameters are configured on the Time Tagger Settings page."
+        )
+        note.setWordWrap(True)
+        note.setProperty("role", "muted")
+        form.addRow("Hardware", note)
 
-        save = QPushButton("Save changes")
-        save.setObjectName("Primary")
-        form.addRow("", save)
         root.addWidget(card)
         root.addStretch()
+
+    def export_config(self, config: AppConfig) -> None:
+        config.export_dir = self.export_dir.text().strip() or config.export_dir
+
+    def set_busy(self, busy: bool) -> None:
+        self.export_dir.setEnabled(not busy)
