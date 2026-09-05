@@ -32,7 +32,9 @@ def test_network_adapter_uses_network_factory(monkeypatch: pytest.MonkeyPatch) -
 
     fake_tagger = FakeTagger()
     fake_module = types.SimpleNamespace(
-        createTimeTaggerNetwork=lambda addresses: calls.append(("network", addresses)) or fake_tagger,
+        createTimeTaggerNetwork=lambda addresses: (
+            calls.append(("network", addresses)) or fake_tagger
+        ),
         freeTimeTagger=lambda tagger: calls.append(("free", tagger)),
     )
     monkeypatch.setitem(sys.modules, "TimeTagger", fake_module)

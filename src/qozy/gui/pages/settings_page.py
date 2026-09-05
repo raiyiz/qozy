@@ -3,7 +3,15 @@
 from __future__ import annotations
 
 from PyQt6.QtCore import QThread, pyqtSignal
-from PyQt6.QtWidgets import QComboBox, QFormLayout, QLabel, QLineEdit, QPushButton, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import (
+    QComboBox,
+    QFormLayout,
+    QLabel,
+    QLineEdit,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
+)
 
 from qozy.gui.components import Card
 from qozy.gui.hardware_worker import HardwareWorker

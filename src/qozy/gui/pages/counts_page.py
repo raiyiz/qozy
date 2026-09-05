@@ -282,7 +282,9 @@ class CountsPage(QWidget):
     def _run_bell_scan(self) -> None:
         alice = [c.channel for c in _parse_channels(self.alice_edit.text())]
         bob = [c.channel for c in _parse_channels(self.bob_edit.text())]
-        scan = BellScanController(self.controller.adapter, self.alice_stage, self.bob_stage, alice, bob)
+        scan = BellScanController(
+            self.controller.adapter, self.alice_stage, self.bob_stage, alice, bob
+        )
         self._scan_thread, self._scan_worker = make_scan_thread(scan)
         self._scan_worker.cell_done.connect(self._on_scan_cell)
         self._scan_worker.finished.connect(self._on_scan_finished)

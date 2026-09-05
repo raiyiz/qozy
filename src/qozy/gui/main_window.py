@@ -20,6 +20,7 @@ from qozy.gui.pages import (
     SettingsPage,
     StateTomographyPage,
     TimeTaggerSettingsPage,
+from qozy.gui.pages import CountsPage, HeraldedG2Page, PolytopePage, SettingsPage, StateTomographyPage
 )
 from qozy.gui.theme import apply_theme
 from qozy.hardware.manager import HardwareManager
