@@ -3,28 +3,45 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "qozy-spdc-gui"
+name = "qozy"
 version = "0.1.0"
-description = "SPDC experiment GUI with PyQt and VisPy plotting"
+description = "QOZY: SPDC / Bell-test measurement GUI (PyQt6 + VisPy)"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
   "numpy>=1.26,<2",
   "vispy>=0.14",
-  "PyQt5>=5.15",
+  "PyQt6>=6.6",
+  "elliptec>=0.1.0",
+  "Swabian-TimeTagger>=2.22.4",
 ]
 
 [project.optional-dependencies]
 dev = [
   "pytest>=8.0",
+  "pytest-qt>=4.4",
   "ruff>=0.6.0",
 ]
 
 [project.scripts]
-spdc-gui = "spdc_app.main_window:main"
+qozy = "qozy.app:main"
 
-[tool.setuptools]
-packages = ["spdc_app"]
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+qozy = ["gui/icons/*"]
 
 [tool.uv]
 package = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra -q"
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests"]
+extend-exclude = [
+    "aux/",
+]
