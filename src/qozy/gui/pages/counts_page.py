@@ -25,19 +25,17 @@ from qozy.core.controller import MeasurementController
 from qozy.core.data_model import ChannelConfig, MeasurementConfig, MeasurementState
 from qozy.core.export import save_measurement
 from qozy.core.scan_controller import BellScanController
-from qozy.core.settings_store import TimeTaggerSettingsStore
 from qozy.gui.components import Card
 from qozy.gui.plot_panel import PlotPanel
 from qozy.gui.scan_worker import make_scan_thread
 from qozy.gui.worker import make_worker_thread
 from qozy.hardware.base import MeasurementAdapter, PositionerAdapter
 from qozy.hardware.manager import HardwareManager
-from qozy.hardware.simulator import SimulatorAdapter, SimulatorStage
-from qozy.hardware.timetagger_adapter import TimeTaggerAdapter
+from qozy.hardware.simulator import SimulatorStage
 
 
 def _parse_channels(text: str) -> list[ChannelConfig]:
-    channels = []
+    channels: list[ChannelConfig] = []
     for part in text.split(","):
         part = part.strip()
         if part:
@@ -65,19 +63,12 @@ class CountsPage(QWidget):
             raise ValueError("CountsPage requires a HardwareManager or MeasurementController")
 
         self._hardware_connected = hardware is None or hardware.connected
-        # The Bell scan drives the real Alice/Bob stages from HardwareManager
-        # (simulator or Elliptec, whatever Polarization currently has
-        # connected) so it exercises the same hardware Polarization controls
-        # by hand. Without a HardwareManager (controller-only construction,
-        # used in a couple of tests) fall back to page-local simulator
-        # stages so the scan still has something to drive.
         self._fallback_alice_stage = SimulatorStage() if hardware is None else None
         self._fallback_bob_stage = SimulatorStage() if hardware is None else None
         self._thread = None
         self._worker = None
         self._scan_thread = None
         self._scan_worker = None
-        self._settings_store = TimeTaggerSettingsStore()
         self._export_dir = self._initial.export_dir
         self._last_scan_matrix: np.ndarray | None = None
 
@@ -95,55 +86,14 @@ class CountsPage(QWidget):
         body.addWidget(self.plot_panel, 1)
         root.addLayout(body)
         root.addWidget(self._build_bell_section())
-        self._load_timetagger_defaults()
-
-    def _load_timetagger_defaults(self) -> None:
-        settings = self._settings_store.load()
-        self.alice_edit.setText(", ".join(str(v) for v in settings.alice_channels))
-        self.bob_edit.setText(", ".join(str(v) for v in settings.bob_channels))
-
-    def _apply_runtime_settings(self) -> None:
-        settings = self._settings_store.load()
-        errors = settings.validate()
-        if errors:
-            raise ValueError(" | ".join(errors))
-
-        if settings.backend_mode == "hardware":
-            adapter = TimeTaggerAdapter()
-        else:
-            adapter = SimulatorAdapter()
-        adapter.connect()
-
-        delay_by_channel = settings.channel_delay_map()
-        alice_channels = [
-            ChannelConfig(channel=ch, delay_ns=delay_by_channel.get(ch, 0.0))
-            for ch in settings.alice_channels
-        ]
-        bob_channels = [
-            ChannelConfig(channel=ch, delay_ns=delay_by_channel.get(ch, 0.0))
-            for ch in settings.bob_channels
-        ]
-        self.controller.adapter = adapter
-        self.controller.config.alice_channels = alice_channels
-        self.controller.config.bob_channels = bob_channels
-        self.controller.config.counts_bin_width_ms = settings.counts_bin_width_ms
-        self.controller.config.counts_time_frame_s = settings.counts_time_frame_s
-        self.controller.config.coincidence_window_ns = settings.coincidence_window_ns
-        self.controller.config.correlation_bin_width_ns = settings.correlation_bin_width_ns
-        self.controller.config.correlation_time_frame_ns = settings.correlation_time_frame_ns
-        self.controller._configured = False
+        self.set_hardware_connected(self._hardware_connected)
 
     def export_config(self, config: AppConfig) -> None:
-        """Copy the current widget selections into ``config`` for saving."""
         config.alice_channels = self.alice_edit.text().strip() or config.alice_channels
         config.bob_channels = self.bob_edit.text().strip() or config.bob_channels
         config.auto_save_scan = self.auto_save_checkbox.isChecked()
 
     def set_export_dir(self, path: str) -> None:
-        """Track Settings' export-directory field so a completed Bell scan
-        can be saved there without CountsPage needing a reference to
-        SettingsPage itself (MainWindow wires ``export_dir.textChanged``
-        straight to this method)."""
         self._export_dir = path.strip() or self._export_dir
 
     def set_adapter(self, adapter: MeasurementAdapter) -> None:
@@ -155,7 +105,7 @@ class CountsPage(QWidget):
 
     def set_hardware_connected(self, connected: bool) -> None:
         self._hardware_connected = connected
-        idle = self._worker is None
+        idle = self._worker is None and self._scan_thread is None
         self.start_button.setEnabled(connected and idle)
         self.scan_button.setEnabled(connected and idle)
         if not connected and idle:
@@ -220,6 +170,7 @@ class CountsPage(QWidget):
         self.scan_button = QPushButton("Run Bell scan")
         self.scan_button.clicked.connect(self._run_bell_scan)
         summary_col.addWidget(self.scan_button)
+
         self.bell_e_label = QLabel("E: —")
         self.bell_s_label = QLabel("S: —")
         self.bell_s_label.setObjectName("MetricValue")
@@ -234,37 +185,35 @@ class CountsPage(QWidget):
         self.save_scan_button.setEnabled(False)
         self.save_scan_button.clicked.connect(self._save_scan_matrix)
         summary_col.addWidget(self.save_scan_button)
-
         summary_col.addStretch()
         row.addLayout(summary_col, 1)
         return card
 
+    def _prepare_controller_config(self) -> None:
+        alice = _parse_channels(self.alice_edit.text())
+        bob = _parse_channels(self.bob_edit.text())
+        if not alice or not bob:
+            raise ValueError("At least one Alice channel and one Bob channel are required")
+        overlap = sorted(set(c.channel for c in alice) & set(c.channel for c in bob))
+        if overlap:
+            raise ValueError(f"Alice/Bob channels must be distinct; overlap: {overlap}")
+        self.controller.config.alice_channels = alice
+        self.controller.config.bob_channels = bob
+        self.controller._configured = False
+
     def _start(self) -> None:
+        if self._thread is not None or self._scan_thread is not None:
+            return
         try:
-            self._apply_runtime_settings()
-        except (ImportError, OSError, RuntimeError, ValueError) as exc:
+            self._prepare_controller_config()
+        except ValueError as exc:
             self.status_label.setText(f"Settings error: {exc}")
             return
 
-        delay_by_channel = {
-            c.channel: c.delay_ns for c in self._settings_store.load().channel_settings if c.enabled
-        }
-        self.controller.config.alice_channels = [
-            ChannelConfig(channel=c.channel, delay_ns=delay_by_channel.get(c.channel, 0.0))
-            for c in _parse_channels(self.alice_edit.text())
-        ]
-        self.controller.config.bob_channels = [
-            ChannelConfig(channel=c.channel, delay_ns=delay_by_channel.get(c.channel, 0.0))
-            for c in _parse_channels(self.bob_edit.text())
-        ]
-        self.controller._configured = False
-        self.controller.start()
-
-        self.controller._configured = False
         self._thread, self._worker = make_worker_thread(self.controller, interval_ms=100)
         self._worker.data_ready.connect(self._on_data)
         self._worker.error.connect(self._on_error)
-        self._worker.started.connect(lambda: self._on_started())
+        self._worker.started.connect(self._on_started)
         self._thread.finished.connect(self._on_thread_finished)
         self._thread.start()
 
@@ -292,9 +241,9 @@ class CountsPage(QWidget):
 
     def _set_stopped(self) -> None:
         self.live_checkbox.setChecked(False)
-        self.start_button.setEnabled(self._hardware_connected)
+        self.start_button.setEnabled(self._hardware_connected and self._scan_thread is None)
         self.stop_button.setEnabled(False)
-        self.scan_button.setEnabled(self._hardware_connected)
+        self.scan_button.setEnabled(self._hardware_connected and self._scan_thread is None)
         if not self.status_label.text().startswith("Error:"):
             self.status_label.setText("Stopped")
         self.acquisition_changed.emit(False)
@@ -311,15 +260,12 @@ class CountsPage(QWidget):
             corr_t, corr_v = state.corr_data[0]
             corr = np.interp(t, corr_t, corr_v) if len(corr_t) > 1 else None
         self.plot_panel.set_traces(t, alice, bob, corr)
-        self.status_label.setText(f"Acquiring… last counter row: {counter.shape}")
+        self.status_label.setText(f"Acquiring… last counter shape: {counter.shape}")
 
     def _on_error(self, message: str) -> None:
         self.status_label.setText(f"Error: {message}")
 
     def _bell_scan_stages(self) -> tuple[PositionerAdapter, PositionerAdapter]:
-        """The stages to drive for a scan: the real ones from HardwareManager
-        when we have one, so the scan reflects whatever Polarization
-        currently has connected (simulator or Elliptec)."""
         if self.hardware is not None:
             return self.hardware.stages["alice"], self.hardware.stages["bob"]
         assert self._fallback_alice_stage is not None
@@ -327,59 +273,73 @@ class CountsPage(QWidget):
         return self._fallback_alice_stage, self._fallback_bob_stage
 
     def _run_bell_scan(self) -> None:
+        if self._scan_thread is not None or self._worker is not None:
+            return
         if self.hardware is not None and not (
             self.hardware.stage_connected["alice"] and self.hardware.stage_connected["bob"]
         ):
             self.status_label.setText(
-                "Error: connect both polarization stages on the Polarization "
-                "page before running a Bell scan"
+                "Error: connect both polarization stages on the Polarization page before running a Bell scan"
             )
             return
+        try:
+            self._prepare_controller_config()
+        except ValueError as exc:
+            self.status_label.setText(f"Settings error: {exc}")
+            return
 
-        alice = [c.channel for c in _parse_channels(self.alice_edit.text())]
-        bob = [c.channel for c in _parse_channels(self.bob_edit.text())]
+        alice = [c.channel for c in self.controller.config.alice_channels]
+        bob = [c.channel for c in self.controller.config.bob_channels]
         alice_stage, bob_stage = self._bell_scan_stages()
         scan = BellScanController(self.controller.adapter, alice_stage, bob_stage, alice, bob)
         self._scan_thread, self._scan_worker = make_scan_thread(scan)
         self._scan_worker.cell_done.connect(self._on_scan_cell)
         self._scan_worker.finished.connect(self._on_scan_finished)
         self._scan_worker.error.connect(self._on_scan_error)
+        self._scan_worker.finished.connect(self._scan_thread.quit)
+        self._scan_worker.error.connect(self._scan_thread.quit)
+        self._scan_thread.finished.connect(self._on_scan_thread_finished)
         self._scan_thread.start()
 
         self.scan_button.setEnabled(False)
         self.start_button.setEnabled(False)
         self.save_scan_button.setEnabled(False)
         self.status_label.setText("Running Bell scan…")
-        # freezes Settings/Polarization controls too, since the scan now
-        # drives the same stage objects those pages' Move/Home buttons do
         self.acquisition_changed.emit(True)
 
     def _on_scan_cell(self, row: int, col: int, value: float) -> None:
         self.bell_table.setItem(row, col, QTableWidgetItem(f"{value:.0f}"))
 
     def _on_scan_finished(self, matrix: np.ndarray, e: np.ndarray, s: np.ndarray) -> None:
+        self._last_scan_matrix = matrix
         e_text = ", ".join(f"{v:.2f}" for v in e)
         s_text = ", ".join(f"{v:.2f}" for v in s)
-        max_s = max(abs(v) for v in s)
+        max_s = max((abs(v) for v in s), default=0.0)
         self.bell_e_label.setText(f"E: {e_text}")
         self.bell_s_label.setText(f"S: {s_text}  (max |S| = {max_s:.2f})")
-        self._last_scan_matrix = matrix
         if self.auto_save_checkbox.isChecked():
             self._save_scan_matrix(auto=True)
         else:
             self.status_label.setText("Scan complete")
-        self._finish_scan_thread()
 
     def _on_scan_error(self, message: str) -> None:
         self.status_label.setText(f"Scan error: {message}")
-        self._finish_scan_thread()
+
+    def _on_scan_thread_finished(self) -> None:
+        self._scan_thread = None
+        self._scan_worker = None
+        self.scan_button.setEnabled(self._hardware_connected)
+        self.start_button.setEnabled(self._hardware_connected)
+        self.save_scan_button.setEnabled(self._last_scan_matrix is not None)
+        self.acquisition_changed.emit(False)
 
     def _save_scan_matrix(self, auto: bool = False) -> None:
         if self._last_scan_matrix is None:
             return
         try:
             path = save_measurement(
-                self._last_scan_matrix, base_dir=Path(self._export_dir).expanduser()
+                self._last_scan_matrix,
+                base_dir=Path(self._export_dir).expanduser(),
             )
         except (OSError, RuntimeError) as exc:
             prefix = "Scan complete — auto-save failed" if auto else "Save failed"
@@ -387,12 +347,3 @@ class CountsPage(QWidget):
             return
         prefix = "Scan complete — saved to" if auto else "Saved to"
         self.status_label.setText(f"{prefix} {path}")
-
-    def _finish_scan_thread(self) -> None:
-        if self._scan_thread is not None:
-            self._scan_thread.quit()
-            self._scan_thread.wait()
-        self.scan_button.setEnabled(self._hardware_connected)
-        self.start_button.setEnabled(self._hardware_connected)
-        self.save_scan_button.setEnabled(self._last_scan_matrix is not None)
-        self.acquisition_changed.emit(False)
