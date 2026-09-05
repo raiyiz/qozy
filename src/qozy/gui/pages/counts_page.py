@@ -28,7 +28,7 @@ from qozy.gui.scan_worker import make_scan_thread
 from qozy.gui.worker import make_worker_thread
 from qozy.hardware.base import MeasurementAdapter
 from qozy.hardware.manager import HardwareManager
-from qozy.hardware.simulator import SimulatorAdapter
+from qozy.hardware.simulator import SimulatorAdapter, SimulatorStage
 from qozy.hardware.timetagger_adapter import TimeTaggerAdapter
 
 
@@ -58,8 +58,8 @@ class CountsPage(QWidget):
         else:
             raise ValueError("CountsPage requires a HardwareManager or MeasurementController")
 
-        self.alice_stage = None
-        self.bob_stage = None
+        self.alice_stage = SimulatorStage()
+        self.bob_stage = SimulatorStage()
         self._thread = None
         self._worker = None
         self._scan_thread = None
@@ -120,7 +120,7 @@ class CountsPage(QWidget):
         self.controller._configured = False
 
     def set_adapter(self, adapter: MeasurementAdapter) -> None:
-        """Switch the measurement controller to a newly connected backend."""
+        """Switch to a newly connected acquisition backend."""
         if self._worker is not None:
             raise RuntimeError("Cannot replace the adapter during live acquisition")
         self.controller = MeasurementController(adapter, self.controller.config)
@@ -253,7 +253,8 @@ class CountsPage(QWidget):
         self.start_button.setEnabled(True)
         self.stop_button.setEnabled(False)
         self.scan_button.setEnabled(True)
-        self.status_label.setText("Stopped")
+        if not self.status_label.text().startswith("Error:"):
+            self.status_label.setText("Stopped")
         self.acquisition_changed.emit(False)
 
     def _on_data(self, state: MeasurementState) -> None:
