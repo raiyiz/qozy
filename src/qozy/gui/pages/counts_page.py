@@ -1,20 +1,9 @@
-"""The Counts page: wired to real logic instead of placeholder metric
-cards. Replaces the standalone window from
-``old_spdc_to_port/spdc/main.py`` — same live acquisition + channel config
-idea, now embedded as one tab of the QOZY shell and driven by
-MeasurementController (live counts/corr plot) and BellScanController (an
-actual polarization-angle scan) instead of hand-rolled UI state.
-
-Runs against SimulatorAdapter + SimulatorStage by default. Swapping in
-``qozy.hardware.timetagger_adapter.TimeTaggerAdapter`` and
-``qozy.hardware.elliptec_adapter.ElliptecAdapter`` is a one-line change in
-``qozy.app`` once real hardware is available.
-"""
+"""Counts page and live acquisition UI."""
 
 from __future__ import annotations
 
 import numpy as np
-from PyQt6.QtCore import QMetaObject, Qt
+from PyQt6.QtCore import QMetaObject, Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QCheckBox,
     QFormLayout,
@@ -37,7 +26,9 @@ from qozy.gui.components import Card
 from qozy.gui.plot_panel import PlotPanel
 from qozy.gui.scan_worker import make_scan_thread
 from qozy.gui.worker import make_worker_thread
-from qozy.hardware.simulator import SimulatorAdapter, SimulatorStage
+from qozy.hardware.base import MeasurementAdapter
+from qozy.hardware.manager import HardwareManager
+from qozy.hardware.simulator import SimulatorAdapter
 from qozy.hardware.timetagger_adapter import TimeTaggerAdapter
 
 
@@ -51,13 +42,24 @@ def _parse_channels(text: str) -> list[ChannelConfig]:
 
 
 class CountsPage(QWidget):
-    def __init__(self, controller: MeasurementController | None = None) -> None:
+    acquisition_changed = pyqtSignal(bool)
+
+    def __init__(
+        self,
+        hardware: HardwareManager | None = None,
+        controller: MeasurementController | None = None,
+    ) -> None:
         super().__init__()
-        self.controller = controller or MeasurementController(
-            SimulatorAdapter(), MeasurementConfig()
-        )
-        self.alice_stage = SimulatorStage()
-        self.bob_stage = SimulatorStage()
+        self.hardware = hardware
+        if controller is not None:
+            self.controller = controller
+        elif hardware is not None:
+            self.controller = MeasurementController(hardware.adapter, MeasurementConfig())
+        else:
+            raise ValueError("CountsPage requires a HardwareManager or MeasurementController")
+
+        self.alice_stage = None
+        self.bob_stage = None
         self._thread = None
         self._worker = None
         self._scan_thread = None
@@ -116,6 +118,13 @@ class CountsPage(QWidget):
         self.controller.config.correlation_bin_width_ns = settings.correlation_bin_width_ns
         self.controller.config.correlation_time_frame_ns = settings.correlation_time_frame_ns
         self.controller._configured = False
+
+    def set_adapter(self, adapter: MeasurementAdapter) -> None:
+        """Switch the measurement controller to a newly connected backend."""
+        if self._worker is not None:
+            raise RuntimeError("Cannot replace the adapter during live acquisition")
+        self.controller = MeasurementController(adapter, self.controller.config)
+        self.status_label.setText("Backend connected; ready")
 
     def _build_controls(self) -> QWidget:
         card = Card()
@@ -211,33 +220,41 @@ class CountsPage(QWidget):
         self.controller._configured = False
         self.controller.start()
 
+        self.controller._configured = False
         self._thread, self._worker = make_worker_thread(self.controller, interval_ms=100)
         self._worker.data_ready.connect(self._on_data)
         self._worker.error.connect(self._on_error)
+        self._worker.stopped.connect(self._thread.quit)
+        self._thread.finished.connect(self._on_thread_finished)
         self._thread.start()
 
         self.live_checkbox.setChecked(True)
         self.start_button.setEnabled(False)
         self.stop_button.setEnabled(True)
-        self.scan_button.setEnabled(False)  # scan and live acquisition share the adapter
-        self.status_label.setText("Acquiring…")
+        self.scan_button.setEnabled(False)
+        self.status_label.setText("Starting acquisition…")
+        self.acquisition_changed.emit(True)
 
     def _stop(self) -> None:
         if self._worker is not None:
-            # self._worker lives on the background thread; a direct call
-            # here would touch its QTimer from the wrong thread. Queue it
-            # so it actually runs on the worker's own thread.
             QMetaObject.invokeMethod(self._worker, "stop", Qt.ConnectionType.QueuedConnection)
-        if self._thread is not None:
-            self._thread.quit()
-            self._thread.wait()
-        self.controller.stop()
+            if self._thread is not None:
+                self._thread.wait()
+        else:
+            self._set_stopped()
 
+    def _on_thread_finished(self) -> None:
+        self._thread = None
+        self._worker = None
+        self._set_stopped()
+
+    def _set_stopped(self) -> None:
         self.live_checkbox.setChecked(False)
         self.start_button.setEnabled(True)
         self.stop_button.setEnabled(False)
         self.scan_button.setEnabled(True)
         self.status_label.setText("Stopped")
+        self.acquisition_changed.emit(False)
 
     def _on_data(self, state: MeasurementState) -> None:
         counter = state.counter_data
@@ -255,14 +272,11 @@ class CountsPage(QWidget):
 
     def _on_error(self, message: str) -> None:
         self.status_label.setText(f"Error: {message}")
-        self._stop()
 
     def _run_bell_scan(self) -> None:
         alice = [c.channel for c in _parse_channels(self.alice_edit.text())]
         bob = [c.channel for c in _parse_channels(self.bob_edit.text())]
-        scan = BellScanController(
-            self.controller.adapter, self.alice_stage, self.bob_stage, alice, bob
-        )
+        scan = BellScanController(self.controller.adapter, self.alice_stage, self.bob_stage, alice, bob)
         self._scan_thread, self._scan_worker = make_scan_thread(scan)
         self._scan_worker.cell_done.connect(self._on_scan_cell)
         self._scan_worker.finished.connect(self._on_scan_finished)
