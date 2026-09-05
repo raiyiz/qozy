@@ -32,7 +32,6 @@ def test_theme_button_cycles_all_four_themes(qapp) -> None:
     window = MainWindow(qapp)
     assert len(THEMES) == 6
     assert window.mode == "classic-light"
-
     for expected in ("classic-dark", "soft-dark", "soft-light", "classic-light"):
         window.cycle_theme()
         assert window.mode == expected
@@ -45,12 +44,10 @@ def test_timetagger_page_owns_hardware_connection(qapp) -> None:
     assert page.hardware is window.hardware
     assert page.connect_button.text() == "Disconnect"
     assert page.device_label.text() == "Simulator backend"
-
     page._toggle_connection()
     _pump(qapp, 0.25)
     assert not window.hardware.connected
     assert page.connect_button.text() == "Connect"
-
     page.backend_combo.setCurrentIndex(0)
     page._toggle_connection()
     _pump(qapp, 0.25)
@@ -62,19 +59,17 @@ def test_timetagger_apply_updates_hardware_manager(qapp) -> None:
     window = MainWindow(qapp)
     page = _page(window, 1)
     counts_page = _page(window, 3)
-
     page.alice_edit.setText("5, 6")
     page.bob_edit.setText("7, 8")
     page.channel_table.item(4, 2).setText("3.5")
     page.channel_table.item(4, 3).setText("0.2")
     page._apply_settings()
     _pump(qapp, 0.25)
-
     assert window.hardware.timetagger_settings.alice_channels == [5, 6]
     assert window.hardware.timetagger_settings.bob_channels == [7, 8]
     assert counts_page.alice_edit.text() == "5, 6"
     assert counts_page.bob_edit.text() == "7, 8"
-    assert window.hardware.timetagger_settings.channel_delay_map()[5] == 0.0
+    assert window.hardware.timetagger_settings.channel_delay_map()[5] == 3.5
 
 
 def test_counts_page_start_stop_cycle_updates_bell_summary(qapp) -> None:
@@ -259,7 +254,6 @@ def test_settings_export_dir_propagates_to_counts_page(qapp) -> None:
 
 def test_main_window_persists_config_across_restarts(qapp, tmp_path, monkeypatch) -> None:
     monkeypatch.setattr("qozy.core.app_config.DEFAULT_CONFIG_PATH", tmp_path / "config.json")
-    monkeypatch.setattr("qozy.gui.pages.timetagger_settings_page.TimeTaggerSettingsStore", lambda: __import__("qozy.core.settings_store", fromlist=["TimeTaggerSettingsStore"]).TimeTaggerSettingsStore(tmp_path / "timetagger.json"))
     window = MainWindow(qapp)
     timetagger_page = _page(window, 1)
     timetagger_page.alice_edit.setText("5, 6")
