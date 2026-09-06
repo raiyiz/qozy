@@ -5,7 +5,10 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
-from PyQt6.QtCore import pyqtSignal
+from PyQt6.QtCore import (
+    pyqtSignal,
+    Qt
+)
 from PyQt6.QtWidgets import (
     QCheckBox,
     QFormLayout,
@@ -17,6 +20,7 @@ from PyQt6.QtWidgets import (
     QTableWidgetItem,
     QVBoxLayout,
     QWidget,
+    QSizePolicy
 )
 
 from qozy.core.app_config import AppConfig
@@ -26,7 +30,7 @@ from qozy.core.data_model import (
     ChannelConfig,
     MeasurementConfig,
     MeasurementState,
-    TimeTaggerSettings,
+    TimeTaggerSettings
 )
 from qozy.core.export import save_measurement
 from qozy.core.scan_controller import BellScanController
@@ -171,21 +175,39 @@ class CountsPage(QWidget):
         card = Card()
         row = QHBoxLayout(card)
         row.setContentsMargins(20, 16, 20, 16)
-        row.setSpacing(24)
+        row.setSpacing(16)
 
         table_col = QVBoxLayout()
+        table_col.setContentsMargins(0, 0, 0, 0)
+        table_col.setSpacing(4)
+
         label = QLabel("Coincidence matrix")
         label.setObjectName("SectionTitle")
-        table_col.addWidget(label)
+        table_col.addWidget(label, 0, Qt.AlignmentFlag.AlignTop)
+
         self.bell_table = QTableWidget(4, 4)
         self.bell_table.setVerticalHeaderLabels(list(POLARIZATION_LABELS))
-        self.bell_table.setHorizontalHeaderLabels(["22.5°", "67.5°", "112.5°", "157.5°"])
-        self.bell_table.setFixedHeight(150)
-        self.bell_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.bell_table.setHorizontalHeaderLabels(
+            ["22.5°", "67.5°", "112.5°", "157.5°"]
+        )
+        self.bell_table.setFixedHeight(300)
+        self.bell_table.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Fixed
+        )
+        self.bell_table.setEditTriggers(
+            QTableWidget.EditTrigger.NoEditTriggers
+        )
+
         for r in range(4):
             for c in range(4):
                 self.bell_table.setItem(r, c, QTableWidgetItem("—"))
-        table_col.addWidget(self.bell_table)
+
+        table_col.addWidget(self.bell_table, 0)
+
+        # Keep title + table at the top instead of stretching vertically
+        table_col.addStretch(1)
+
         row.addLayout(table_col, 1)
 
         summary_col = QVBoxLayout()

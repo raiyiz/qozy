@@ -330,7 +330,7 @@ requires-dist = [
     { name = "swabian-timetagger", specifier = ">=2.22.4" },
     { name = "vispy", specifier = ">=0.14" },
 ]
-provides-extras = ["dev", "hardware"]
+provides-extras = ["dev"]
 
 [[package]]
 name = "ruff"
