@@ -31,6 +31,7 @@ src/qozy/
     ├── worker.py                  # background live acquisition
     ├── scan_worker.py             # background Bell scan
     ├── plot_panel.py              # VisPy live plotting
+    ├── bell_matrix_plot.py        # matplotlib heatmap of the Bell-scan matrix
     └── pages/
         ├── settings_page.py            # export directory only
         ├── timetagger_settings_page.py # Time Tagger connection, channels, timing, profile
@@ -281,6 +282,43 @@ stages from.
 The simulator has a small angle-dependent coincidence model so the Bell scan
 is useful for development and produces a non-flat example matrix.
 
+### Coincidence rate and total counts
+
+`MeasurementController.configure()` calls `setup_coincidences()` *before*
+`setup_countrates()` now, specifically so the coincidence (virtual)
+channels it returns can be folded into the same countrate registration as
+the singles: `setup_countrates(all_channels + coincidence_channels)`. This
+means `get_countrate_data()`/`get_total_counts()` — both already part of
+`MeasurementAdapter` and already used elsewhere (`BellScanController` reads
+`get_total_counts()` per angle setting) — now also cover live coincidence
+rate and running coincidence total, not just per-detector singles.
+`MeasurementState.countrate_labels` records which array index is which
+(`"ch 1"`, `"coin 1×3"`, ...) so `CountsPage._update_coincidence_labels()`
+can sum just the `"coin "`-prefixed entries into the "Coincidence rate" /
+"Total coincidences" labels next to the live plot — this is genuinely new
+recorded data, not a different view of something Counts already showed.
+Only wired against the simulator's data so far; real Time Tagger hardware
+runs through the exact same `MeasurementAdapter` methods once connected.
+
+### Bell-matrix heatmap
+
+`gui/bell_matrix_plot.py`'s `BellMatrixPlot` is a small embedded matplotlib
+`FigureCanvasQTAgg`, sitting next to the numeric `QTableWidget` in the Bell
+summary card. It draws the 4×4 matrix as a color-coded heatmap with
+E1–E4/S1–S4 annotated on the plot itself — a quick visual read of CHSH
+violation strength, complementing rather than replacing the table's exact
+values. It resets to a placeholder (`clear()`) at the start of every scan
+and at first launch, and is redrawn (`update_matrix()`) in
+`_on_scan_finished`. This is a lighter port of
+`old_spdc_to_port/spdc/bellvalue.py`'s `plot()` function, adapted to the
+4×4 matrix this app actually produces — the old function plotted a full
+4×16 angle-sweep visibility curve with the 4×4 Bell slice overlaid as a
+table; this app's `BellScanController` only ever takes the four discrete
+Bell-angle settings, so there's no sweep curve to draw. (`bellvalue.py`'s
+other function, `bell_matrix()`, was itself an unfinished stub in the
+original — it references undefined variables and ends in
+`print("Coming Soon.")` — so there was nothing there to port.)
+
 ### Saving a completed scan
 
 The completed 4×4 coincidence matrix is the one thing Counts actually saves
@@ -296,6 +334,8 @@ GUI). `CountsPage`:
   `core.export.save_measurement(matrix, base_dir=...)` on click, which
   writes into the dated `year/month/day/NN.txt` folder structure and
   reports the exact path back in the status line
+- also saves the heatmap as `NN_quick_analysis.svg` next to the `.txt` —
+  the same suffix `bellvalue.py`'s own SVG output used
 - also offers an **Auto-save after scan** checkbox; when checked,
   `_on_scan_finished` calls the same save path itself as soon as the scan
   completes, no click needed
@@ -323,7 +363,7 @@ they are not part of the four-theme cycle.
 
 | Area | Status |
 |---|---|
-| Counts | **Implemented** — live acquisition UI, VisPy plot, start/stop, Bell scan (driving HardwareManager's real stages), 4×4 matrix, E/S summary; Alice/Bob channel display is read-only, driven by Time Tagger Settings |
+| Counts | **Implemented** — live acquisition UI, VisPy plot, live coincidence rate/total, start/stop, Bell scan (driving HardwareManager's real stages), 4×4 matrix + heatmap, E/S summary; Alice/Bob channel display is read-only, driven by Time Tagger Settings |
 | Settings | **Implemented** — export directory only |
 | Time Tagger Settings | **Implemented** — connection, 8-channel table, Alice/Bob assignment, timing, Apply/Load-from-device/Save-profile/Load-profile/Reset |
 | Polarization | **Implemented** — Alice/Bob stage configuration, motion controls, Bell-angle presets |
@@ -332,7 +372,7 @@ they are not part of the four-theme cycle.
 | Elliptec | **Implemented** — adapter and Polarization-page controls |
 | Simulator | **Implemented** — measurement backend and polarization stages |
 | Config persistence | **Implemented** — two separate stores; see "Two persisted files, two different jobs" |
-| Measurement export | **Implemented** — Save/auto-save the completed Bell-scan matrix to the Settings export directory |
+| Measurement export | **Implemented** — Save/auto-save the completed Bell-scan matrix and its quick-analysis SVG heatmap to the Settings export directory |
 | Polytope | Placeholder |
 | Heralded g2 | Placeholder |
 | State tomography | Placeholder |

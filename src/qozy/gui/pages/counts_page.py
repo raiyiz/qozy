@@ -5,10 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
-from PyQt6.QtCore import (
-    pyqtSignal,
-    Qt
-)
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QCheckBox,
     QFormLayout,
@@ -16,11 +13,11 @@ from PyQt6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
+    QSizePolicy,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
     QWidget,
-    QSizePolicy
 )
 
 from qozy.core.app_config import AppConfig
@@ -30,10 +27,11 @@ from qozy.core.data_model import (
     ChannelConfig,
     MeasurementConfig,
     MeasurementState,
-    TimeTaggerSettings
+    TimeTaggerSettings,
 )
 from qozy.core.export import save_measurement
 from qozy.core.scan_controller import BellScanController
+from qozy.gui.bell_matrix_plot import BellMatrixPlot
 from qozy.gui.components import Card
 from qozy.gui.plot_panel import PlotPanel
 from qozy.gui.scan_worker import make_scan_thread
@@ -71,6 +69,8 @@ class CountsPage(QWidget):
         self._scan_worker = None
         self._export_dir = self._initial.export_dir
         self._last_scan_matrix: np.ndarray | None = None
+        self._last_scan_e: np.ndarray | None = None
+        self._last_scan_s: np.ndarray | None = None
 
         root = QVBoxLayout(self)
         root.setContentsMargins(32, 28, 32, 28)
@@ -169,6 +169,13 @@ class CountsPage(QWidget):
         self.status_label.setProperty("role", "muted")
         self.status_label.setWordWrap(True)
         form.addRow("", self.status_label)
+
+        self.coincidence_rate_label = QLabel("Coincidence rate: —")
+        self.total_coincidences_label = QLabel("Total coincidences: —")
+        self.coincidence_rate_label.setProperty("role", "muted")
+        self.total_coincidences_label.setProperty("role", "muted")
+        form.addRow("", self.coincidence_rate_label)
+        form.addRow("", self.total_coincidences_label)
         return card
 
     def _build_bell_section(self) -> QWidget:
@@ -203,11 +210,13 @@ class CountsPage(QWidget):
             for c in range(4):
                 self.bell_table.setItem(r, c, QTableWidgetItem("—"))
 
-        table_col.addWidget(self.bell_table, 0)
+        # table_col.addWidget(self.bell_table, 0)
+        # # Keep title + table at the top instead of stretching vertically
+        # table_col.addStretch(1)
 
-        # Keep title + table at the top instead of stretching vertically
-        table_col.addStretch(1)
-
+        table_col.addWidget(self.bell_table)
+        self.bell_plot = BellMatrixPlot()
+        table_col.addWidget(self.bell_plot)
         row.addLayout(table_col, 1)
 
         summary_col = QVBoxLayout()
@@ -313,7 +322,28 @@ class CountsPage(QWidget):
             corr_t, corr_v = state.corr_data[0]
             corr = np.interp(t, corr_t, corr_v) if len(corr_t) > 1 else None
         self.plot_panel.set_traces(t, alice, bob, corr)
+        self._update_coincidence_labels(state)
         self.status_label.setText(f"Acquiring… last counter shape: {counter.shape}")
+
+    def _update_coincidence_labels(self, state: MeasurementState) -> None:
+        """Countrate/total-counts now cover the coincidence (virtual)
+        channels alongside the singles (see ``MeasurementController.
+        configure()``), so this is genuinely new recorded data, not just a
+        different view of what Counts already showed."""
+        labels = state.countrate_labels
+        rate = state.countrate_data
+        total = state.total_counts_data
+        if not labels or rate is None or total is None:
+            return
+        coincidence_idx = [i for i, label in enumerate(labels) if label.startswith("coin ")]
+        if not coincidence_idx:
+            return
+        rate = np.asarray(rate)
+        total = np.asarray(total)
+        coincidence_rate = float(np.sum(rate[coincidence_idx]))
+        coincidence_total = float(np.sum(total[coincidence_idx]))
+        self.coincidence_rate_label.setText(f"Coincidence rate: {coincidence_rate:,.0f} cps")
+        self.total_coincidences_label.setText(f"Total coincidences: {coincidence_total:,.0f}")
 
     def _on_error(self, message: str) -> None:
         self.status_label.setText(f"Error: {message}")
@@ -344,6 +374,10 @@ class CountsPage(QWidget):
         alice = [c.channel for c in self.controller.config.alice_channels]
         bob = [c.channel for c in self.controller.config.bob_channels]
         alice_stage, bob_stage = self._bell_scan_stages()
+        for r in range(4):
+            for c in range(4):
+                self.bell_table.setItem(r, c, QTableWidgetItem("—"))
+        self.bell_plot.clear()
         scan = BellScanController(
             self.controller.adapter,
             alice_stage,
@@ -372,11 +406,14 @@ class CountsPage(QWidget):
 
     def _on_scan_finished(self, matrix: np.ndarray, e: np.ndarray, s: np.ndarray) -> None:
         self._last_scan_matrix = matrix
+        self._last_scan_e = e
+        self._last_scan_s = s
         e_text = ", ".join(f"{v:.2f}" for v in e)
         s_text = ", ".join(f"{v:.2f}" for v in s)
         max_s = max((abs(v) for v in s), default=0.0)
         self.bell_e_label.setText(f"E: {e_text}")
         self.bell_s_label.setText(f"S: {s_text}  (max |S| = {max_s:.2f})")
+        self.bell_plot.update_matrix(matrix, e, s)
         self.save_scan_button.setEnabled(True)
         self.scan_button.setEnabled(self._hardware_connected)
         self.start_button.setEnabled(self._hardware_connected)
@@ -404,9 +441,14 @@ class CountsPage(QWidget):
                 self._last_scan_matrix,
                 base_dir=Path(self._export_dir).expanduser(),
             )
+            svg_note = ""
+            if self._last_scan_e is not None and self._last_scan_s is not None:
+                svg_path = path.with_name(f"{path.stem}_quick_analysis.svg")
+                self.bell_plot.save_svg(svg_path)
+                svg_note = " (+ quick-analysis SVG)"
         except (OSError, RuntimeError) as exc:
             prefix = "Scan complete — auto-save failed" if auto else "Save failed"
             self.status_label.setText(f"{prefix}: {exc}")
             return
         prefix = "Scan complete — saved to" if auto else "Saved to"
-        self.status_label.setText(f"{prefix} {path}")
+        self.status_label.setText(f"{prefix} {path}{svg_note}")

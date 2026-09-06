@@ -36,8 +36,17 @@ class MeasurementController:
         self.adapter.setup_counters(
             all_channels, self.config.counts_bin_width_ms, self.config.counts_time_frame_s
         )
-        self.adapter.setup_countrates(all_channels)
-        self.adapter.setup_coincidences(alice, bob, self.config.coincidence_window_ns)
+        _combos, coincidence_channels = self.adapter.setup_coincidences(
+            alice, bob, self.config.coincidence_window_ns
+        )
+        # Countrate covers the coincidence (virtual) channels too, not just
+        # the singles, so a live coincidence rate is recorded alongside the
+        # per-detector rates — not just the accumulated total a Bell scan
+        # already used via get_total_counts().
+        self.adapter.setup_countrates(all_channels + coincidence_channels)
+        self.state.countrate_labels = [f"ch {ch}" for ch in all_channels] + [
+            f"coin {a}\u00d7{b}" for a in alice for b in bob
+        ]
         self.adapter.setup_correlations(
             alice,
             bob,
@@ -61,6 +70,7 @@ class MeasurementController:
         self.state.counter_data = self.adapter.get_counter_data()
         self.state.corr_data = self.adapter.get_corr_data()
         self.state.countrate_data = self.adapter.get_countrate_data()
+        self.state.total_counts_data = self.adapter.get_total_counts()
         return self.state
 
     def evaluate_bell(self, flat_coincidence_counts) -> None:

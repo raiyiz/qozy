@@ -117,6 +117,61 @@ def test_counts_page_bell_scan_updates_summary(qapp) -> None:
     assert counts_page.bell_e_label.text() != "E: —"
 
 
+def test_counts_page_bell_scan_updates_matrix_plot(qapp) -> None:
+    window = MainWindow(qapp)
+    counts_page = _page(window, 3)
+    counts_page._run_bell_scan()
+    for _ in range(50):
+        qapp.processEvents()
+        if counts_page.status_label.text() == "Scan complete":
+            break
+        time.sleep(0.05)
+
+    # the placeholder axis is turned back on and titled with the E/S text
+    # once a real matrix is drawn
+    assert counts_page.bell_plot._ax.get_title() != ""
+
+
+def test_counts_page_save_scan_also_writes_quick_analysis_svg(qapp, tmp_path) -> None:
+    window = MainWindow(qapp)
+    counts_page = _page(window, 3)
+    settings_page = _page(window, 0)
+    settings_page.export_dir.setText(str(tmp_path))
+
+    counts_page._run_bell_scan()
+    for _ in range(50):
+        qapp.processEvents()
+        if counts_page.status_label.text() == "Scan complete":
+            break
+        time.sleep(0.05)
+
+    counts_page.save_scan_button.click()
+
+    svg_files = list(tmp_path.rglob("*_quick_analysis.svg"))
+    txt_files = list(tmp_path.rglob("*.txt"))
+    assert len(svg_files) == 1
+    assert len(txt_files) == 1
+    assert svg_files[0].stat().st_size > 0
+    assert "quick-analysis SVG" in counts_page.status_label.text()
+
+
+def test_counts_page_live_acquisition_shows_coincidence_rate(qapp) -> None:
+    window = MainWindow(qapp)
+    counts_page = _page(window, 3)
+
+    counts_page._start()
+    for _ in range(20):
+        qapp.processEvents()
+        if counts_page.coincidence_rate_label.text() != "Coincidence rate: —":
+            break
+        time.sleep(0.05)
+    counts_page._stop()
+    _pump(qapp, 0.25)
+
+    assert counts_page.coincidence_rate_label.text() != "Coincidence rate: —"
+    assert counts_page.total_coincidences_label.text() != "Total coincidences: —"
+
+
 def test_counts_page_bell_scan_uses_hardware_manager_stages(qapp) -> None:
     window = MainWindow(qapp)
     counts_page = _page(window, 3)

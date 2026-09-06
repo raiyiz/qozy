@@ -17,7 +17,9 @@ This creates `.venv/` and installs QOZY plus the development tools
 The `elliptec` package and the Swabian Instruments `Swabian-TimeTagger` SDK
 are both normal, required runtime dependencies (the Polarization page
 supports real Thorlabs Elliptec stages, and the Time Tagger Settings page
-supports real Time Tagger hardware). Neither package needs a physical
+supports real Time Tagger hardware). `matplotlib` is also required, for the
+Bell-scan matrix heatmap and the quick-analysis SVG export (see
+"Measurement and Bell scan" below). None of the three need a physical
 device attached to import: `TimeTaggerAdapter` only imports
 `Swabian.TimeTagger` lazily inside `connect()`, so simulator-only
 development, tests, and CI never touch the vendor SDK's device-facing code.
@@ -113,6 +115,13 @@ Alice/Bob channel fields are read-only — they track whatever the Time
 Tagger page currently has configured (`settings_changed` signal), so there
 is exactly one place to set channel assignment, not two.
 
+Live acquisition also tracks a **coincidence rate and running total** —
+`setup_countrates()` now covers the coincidence (virtual) channels
+alongside the per-detector singles, so "Coincidence rate" and "Total
+coincidences" on the Counts page reflect real recorded data, not a
+derived guess. Right now this only runs against the simulator by default;
+real Time Tagger hardware exercises the same code path once connected.
+
 The **Run Bell scan** action is a separate 4×4 polarization scan. It moves
 Alice and Bob through the four Bell-analysis angle settings, integrates the
 coincidence signal for each of the 16 combinations, fills the coincidence
@@ -127,12 +136,19 @@ the scan on the same device.
 The simulator stages and simulator measurement adapter make this workflow
 runnable without hardware.
 
+Next to the numeric coincidence-matrix table, a small matplotlib **heatmap**
+shows the same matrix colored by count rate, with E1–E4/S1–S4 annotated
+directly on the plot — a quick visual read of CHSH violation strength
+alongside the table's exact numbers.
+
 Once a scan finishes, **Save scan** writes the 4×4 coincidence matrix to
 Settings' export directory as a tab-delimited `.txt` file, in a
 `year/month/day/NN.txt` folder structure (`NN` is the first free two-digit
-number that day). Checking **Auto-save after scan** saves it there
+number that day), *and* saves the heatmap as `NN_quick_analysis.svg`
+alongside it — the same naming `old_spdc_to_port/spdc/bellvalue.py` used
+for its own SVG report. Checking **Auto-save after scan** saves both files
 automatically as soon as the scan completes, no click needed. The saved
-path (or a save error, e.g. a full day folder) is reported in the status
+paths (or a save error, e.g. a full day folder) are reported in the status
 line.
 
 ## Test
@@ -154,8 +170,9 @@ Settings page's connection/channel/profile controls (including that a
 window close without an explicit Save/Apply never touches the profile
 file), simulator polarization stages and Bell-angle presets on the
 Polarization page, the Bell scan driving HardwareManager's real stages
-(including its connected-stage guard and cross-page freeze), saving and
-auto-saving a completed scan, config persistence across a simulated
+(including its connected-stage guard and cross-page freeze), the live
+coincidence-rate/total-counts readout, saving and auto-saving a completed
+scan (matrix + quick-analysis SVG), config persistence across a simulated
 restart, and the four-theme cycling behavior.
 
 ## Lint

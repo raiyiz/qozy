@@ -36,6 +36,8 @@ class MeasurementState:
     counter_data: object | None = None
     corr_data: object | None = None
     countrate_data: object | None = None
+    total_counts_data: object | None = None
+    countrate_labels: list[str] = field(default_factory=list)
     coincidence_matrix: object | None = None
     bell_e: object | None = None
     bell_s: object | None = None
