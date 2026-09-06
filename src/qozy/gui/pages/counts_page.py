@@ -203,11 +203,10 @@ class CountsPage(QWidget):
             for c in range(4):
                 self.bell_table.setItem(r, c, QTableWidgetItem("—"))
 
-        # table_col.addWidget(self.bell_table, 0)
-        # # Keep title + table at the top instead of stretching vertically
-        # table_col.addStretch(1)
+        table_col.addWidget(self.bell_table, 0)
+        # Keep title + table at the top instead of stretching vertically
+        table_col.addStretch(1)
 
-        table_col.addWidget(self.bell_table)
         self.bell_plot = BellMatrixPlot()
         table_col.addWidget(self.bell_plot)
         row.addLayout(table_col, 1)
