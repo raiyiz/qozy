@@ -36,6 +36,54 @@ def test_calc_e_s_returns_expected_values() -> None:
     assert np.all(np.isfinite(s))
 
 
+def test_calc_e_s_returns_expected_values_qkd() -> None:
+    matrix = np.array(
+        [
+            [0, 0.5, 0.25, 0.25],
+            [0.5, 0, 0.25, 0.25],
+            [0.25, 0.25, 0, 0.5],
+            [0.25, 0.25, 0.5, 0]
+        ],
+        dtype=float,
+    )
+    e, s = calc_e_s(matrix)
+    assert e.shape == (4,)
+    assert s.shape == (4,)
+    assert (e == np.array([-1, 0, 0, -1])).all()
+    assert (s == np.array([0, -2, -2, 0])).all()
+
+
+
+def test_calc_e_s_returns_expected_values_pr_box() -> None:
+    matrix = np.array(
+        [
+            [0, 1, 0, 1],
+            [1, 0, 1, 0],
+            [1, 0, 0, 1],
+            [0, 1, 1, 0]
+        ],
+        dtype=float,
+    )
+    e, s = calc_e_s(matrix)
+    assert (e == np.array([-1.0, -1.0, 1.0, -1.0])).all()
+    assert (s == np.array([0.0, 0.0, -4.0, 0.0])).all()
+
+
+def test_calc_e_s_returns_expected_values1() -> None:
+    matrix = np.array(
+    [
+        [1, 2, 3, 4],
+        [5, 6, 7, 8],
+        [9, 10, 11, 12],
+        [13, 14, 15, 16]
+        ],
+        dtype=float,
+    )
+    e, s = calc_e_s(matrix)
+    assert all(e)== 0
+    assert all(s)== 0
+
+
 def test_calc_e_s_does_not_mutate_input() -> None:
     matrix = np.array(
         [
