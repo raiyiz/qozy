@@ -100,9 +100,7 @@ _NOISY_COUNTS = np.array(
     ("matrix", "expected_e", "expected_s"),
     [
         pytest.param(_UNIFORM, [0, 0, 0, 0], [0, 0, 0, 0], id="uniform-counts-cancel-to-zero"),
-        pytest.param(
-            _ASCENDING, [0, 0, 0, 0], [0, 0, 0, 0], id="ascending-counts-cancel-to-zero"
-        ),
+        pytest.param(_ASCENDING, [0, 0, 0, 0], [0, 0, 0, 0], id="ascending-counts-cancel-to-zero"),
         pytest.param(_QKD_LIKE, [-1, 0, 0, -1], [0, -2, -2, 0], id="qkd-like-anti-correlated"),
         pytest.param(_PR_BOX, [-1, -1, 1, -1], [0, 0, -4, 0], id="pr-box-maximum-violation"),
     ],

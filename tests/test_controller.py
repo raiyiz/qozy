@@ -111,8 +111,14 @@ def test_configure_labels_singles_then_coincidence_channels(
     ],
 )
 def test_configure_pushes_per_channel_delay_to_the_adapter(delays_ns: list[float]) -> None:
-    alice = [ChannelConfig(channel=1, delay_ns=delays_ns[0]), ChannelConfig(channel=2, delay_ns=delays_ns[1])]
-    bob = [ChannelConfig(channel=3, delay_ns=delays_ns[2]), ChannelConfig(channel=4, delay_ns=delays_ns[3])]
+    alice = [
+        ChannelConfig(channel=1, delay_ns=delays_ns[0]),
+        ChannelConfig(channel=2, delay_ns=delays_ns[1]),
+    ]
+    bob = [
+        ChannelConfig(channel=3, delay_ns=delays_ns[2]),
+        ChannelConfig(channel=4, delay_ns=delays_ns[3]),
+    ]
     config = MeasurementConfig(alice_channels=alice, bob_channels=bob)
     adapter = SimulatorAdapter(seed=0)
     controller = MeasurementController(adapter, config)
