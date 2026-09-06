@@ -19,6 +19,10 @@ def _page(window, index: int):
     return window.pages.widget(index)
 
 
+def _layout_items(layout):
+    return [layout.itemAt(i) for i in range(layout.count())]
+
+
 def test_main_window_builds_all_pages(qapp) -> None:
     apply_theme(qapp, "classic-light")
     window = MainWindow(qapp)
@@ -130,6 +134,27 @@ def test_counts_page_bell_scan_updates_matrix_plot(qapp) -> None:
     # the placeholder axis is turned back on and titled with the E/S text
     # once a real matrix is drawn
     assert counts_page.bell_plot._ax.get_title() != ""
+
+
+def test_counts_page_bell_table_and_plot_are_stacked_without_a_gap(qapp) -> None:
+    """A stretch item once ended up between the coincidence table and its
+    own heatmap (see git history: 'small: fixed spacing between titles and
+    objects on the counts page' briefly pushed the heatmap away from the
+    table it illustrates). Pin the layout order down so it can't regress
+    silently again."""
+    window = MainWindow(qapp)
+    counts_page = _page(window, 3)
+
+    table_col = counts_page.bell_table.parentWidget().layout().itemAt(0).layout()
+    widget_classes = [
+        item.widget().__class__.__name__ for item in _layout_items(table_col) if item.widget()
+    ]
+    stretch_positions = [i for i, item in enumerate(_layout_items(table_col)) if item.spacerItem()]
+
+    assert widget_classes == ["QLabel", "QTableWidget", "BellMatrixPlot"]
+    # the stretch must come after every widget in the column, not between
+    # the table and the plot
+    assert stretch_positions and stretch_positions[0] == table_col.count() - 1
 
 
 def test_counts_page_save_scan_also_writes_quick_analysis_svg(qapp, tmp_path) -> None:

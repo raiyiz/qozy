@@ -204,11 +204,16 @@ class CountsPage(QWidget):
                 self.bell_table.setItem(r, c, QTableWidgetItem("—"))
 
         table_col.addWidget(self.bell_table, 0)
-        # Keep title + table at the top instead of stretching vertically
-        table_col.addStretch(1)
 
         self.bell_plot = BellMatrixPlot()
         table_col.addWidget(self.bell_plot)
+
+        # Keep title + table + heatmap together at the top instead of the
+        # heatmap drifting away from the table it illustrates — the stretch
+        # belongs after everything in this column, not between two widgets
+        # meant to be read together.
+        table_col.addStretch(1)
+
         row.addLayout(table_col, 1)
 
         summary_col = QVBoxLayout()
