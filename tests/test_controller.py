@@ -26,6 +26,23 @@ def test_poll_populates_state() -> None:
     assert state.counter_data is not None
     assert state.corr_data is not None
     assert state.countrate_data is not None
+    assert state.total_counts_data is not None
+
+
+def test_configure_extends_countrate_with_coincidence_channels() -> None:
+    """setup_countrates() must cover the coincidence (virtual) channels
+    alongside the singles, so a live coincidence rate is recorded, not
+    just the per-detector rates."""
+    controller = MeasurementController(SimulatorAdapter(seed=0), make_config())
+    controller.configure()
+    state = controller.poll()
+
+    # 2 Alice + 2 Bob singles, plus 2x2=4 coincidence combinations
+    assert len(state.countrate_labels) == 4 + 4
+    assert state.countrate_data.shape[0] == len(state.countrate_labels)
+    assert state.total_counts_data.shape[0] == len(state.countrate_labels)
+    coincidence_labels = [label for label in state.countrate_labels if label.startswith("coin ")]
+    assert coincidence_labels == ["coin 1×3", "coin 1×4", "coin 2×3", "coin 2×4"]
 
 
 def test_evaluate_bell_sets_state() -> None:

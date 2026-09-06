@@ -117,6 +117,61 @@ def test_counts_page_bell_scan_updates_summary(qapp) -> None:
     assert counts_page.bell_e_label.text() != "E: —"
 
 
+def test_counts_page_bell_scan_updates_matrix_plot(qapp) -> None:
+    window = MainWindow(qapp)
+    counts_page = _page(window, 3)
+    counts_page._run_bell_scan()
+    for _ in range(50):
+        qapp.processEvents()
+        if counts_page.status_label.text() == "Scan complete":
+            break
+        time.sleep(0.05)
+
+    # the placeholder axis is turned back on and titled with the E/S text
+    # once a real matrix is drawn
+    assert counts_page.bell_plot._ax.get_title() != ""
+
+
+def test_counts_page_save_scan_also_writes_quick_analysis_svg(qapp, tmp_path) -> None:
+    window = MainWindow(qapp)
+    counts_page = _page(window, 3)
+    settings_page = _page(window, 0)
+    settings_page.export_dir.setText(str(tmp_path))
+
+    counts_page._run_bell_scan()
+    for _ in range(50):
+        qapp.processEvents()
+        if counts_page.status_label.text() == "Scan complete":
+            break
+        time.sleep(0.05)
+
+    counts_page.save_scan_button.click()
+
+    svg_files = list(tmp_path.rglob("*_quick_analysis.svg"))
+    txt_files = list(tmp_path.rglob("*.txt"))
+    assert len(svg_files) == 1
+    assert len(txt_files) == 1
+    assert svg_files[0].stat().st_size > 0
+    assert "quick-analysis SVG" in counts_page.status_label.text()
+
+
+def test_counts_page_live_acquisition_shows_coincidence_rate(qapp) -> None:
+    window = MainWindow(qapp)
+    counts_page = _page(window, 3)
+
+    counts_page._start()
+    for _ in range(20):
+        qapp.processEvents()
+        if counts_page.coincidence_rate_label.text() != "Coincidence rate: —":
+            break
+        time.sleep(0.05)
+    counts_page._stop()
+    _pump(qapp, 0.25)
+
+    assert counts_page.coincidence_rate_label.text() != "Coincidence rate: —"
+    assert counts_page.total_coincidences_label.text() != "Total coincidences: —"
+
+
 def test_counts_page_bell_scan_uses_hardware_manager_stages(qapp) -> None:
     window = MainWindow(qapp)
     counts_page = _page(window, 3)
@@ -254,8 +309,7 @@ def test_settings_export_dir_propagates_to_counts_page(qapp) -> None:
     assert counts_page._export_dir == "/tmp/custom_export"
 
 
-def test_main_window_persists_config_across_restarts(qapp, tmp_path, monkeypatch) -> None:
-    monkeypatch.setattr("qozy.core.app_config.DEFAULT_CONFIG_PATH", tmp_path / "config.json")
+def test_main_window_persists_config_across_restarts(qapp, tmp_path) -> None:
     window = MainWindow(qapp)
     timetagger_page = _page(window, 1)
     timetagger_page.alice_edit.setText("5, 6")
@@ -273,3 +327,18 @@ def test_main_window_persists_config_across_restarts(qapp, tmp_path, monkeypatch
     assert window2.pages.widget(3).auto_save_checkbox.isChecked()
     assert window2.pages.widget(0).export_dir.text() == "/tmp/qozy_export"
     assert window2.pages.widget(2)._stage_widgets["alice"]["address"].text() == "2"
+
+
+def test_closing_without_saving_does_not_touch_timetagger_profile(qapp, tmp_path) -> None:
+    """``MainWindow.closeEvent`` always saves the automatic ``AppConfig``,
+    but must never silently persist the Time Tagger settings *profile* —
+    only explicit Save profile / Apply to backend actions do that (see
+    ``TimeTaggerSettingsPage.export_config``'s docstring)."""
+    window = MainWindow(qapp)
+    timetagger_page = _page(window, 1)
+    timetagger_page.alice_edit.setText("7, 8")  # edited, but never saved/applied
+
+    window.close()
+
+    assert not (tmp_path / "timetagger_settings.json").exists()
+    assert (tmp_path / "config.json").exists()
