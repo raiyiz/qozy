@@ -194,17 +194,10 @@ class CountsPage(QWidget):
 
         self.bell_table = QTableWidget(4, 4)
         self.bell_table.setVerticalHeaderLabels(list(POLARIZATION_LABELS))
-        self.bell_table.setHorizontalHeaderLabels(
-            ["22.5°", "67.5°", "112.5°", "157.5°"]
-        )
+        self.bell_table.setHorizontalHeaderLabels(["22.5°", "67.5°", "112.5°", "157.5°"])
         self.bell_table.setFixedHeight(300)
-        self.bell_table.setSizePolicy(
-            QSizePolicy.Policy.Expanding,
-            QSizePolicy.Policy.Fixed
-        )
-        self.bell_table.setEditTriggers(
-            QTableWidget.EditTrigger.NoEditTriggers
-        )
+        self.bell_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.bell_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
 
         for r in range(4):
             for c in range(4):
