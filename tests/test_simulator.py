@@ -38,6 +38,16 @@ def test_get_countrate_data_matches_channel_count() -> None:
     assert rates.shape == (2,)
 
 
+def test_total_counts_accumulate_while_running() -> None:
+    sim = make_adapter()
+    sim.start_sm()
+    first = sim.get_total_counts()
+    second = sim.get_total_counts()
+    assert first.shape == (2,)
+    assert np.all(second >= first)
+    assert np.any(second > first)
+
+
 def test_disconnect_does_not_raise() -> None:
     sim = make_adapter()
     sim.stop_sm()
