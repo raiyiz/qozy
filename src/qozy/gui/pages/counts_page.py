@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 import time
+from pathlib import Path
 
 import numpy as np
 from PyQt6.QtCore import Qt, pyqtSignal
@@ -179,8 +179,8 @@ class CountsPage(QWidget):
         row = QHBoxLayout(card)
         row.setContentsMargins(20, 16, 20, 16)
         row.setSpacing(16)
-
         table_col = QVBoxLayout()
+        table_col.setSpacing(4)
         label = QLabel("Coincidence matrix")
         label.setObjectName("SectionTitle")
         table_col.addWidget(label, 0, Qt.AlignmentFlag.AlignTop)
