@@ -308,8 +308,7 @@ summary card. It draws the 4×4 matrix as a color-coded heatmap with
 E1–E4/S1–S4 annotated on the plot itself — a quick visual read of CHSH
 violation strength, complementing rather than replacing the table's exact
 values. It resets to a placeholder (`clear()`) at the start of every scan
-and at first launch, and is redrawn (`update_matrix()`) in
-`_on_scan_finished`. This is a lighter port of
+and at first launch. This is a lighter port of
 `old_spdc_to_port/spdc/bellvalue.py`'s `plot()` function, adapted to the
 4×4 matrix this app actually produces — the old function plotted a full
 4×16 angle-sweep visibility curve with the 4×4 Bell slice overlaid as a
@@ -318,6 +317,39 @@ Bell-angle settings, so there's no sweep curve to draw. (`bellvalue.py`'s
 other function, `bell_matrix()`, was itself an unfinished stub in the
 original — it references undefined variables and ends in
 `print("Coming Soon.")` — so there was nothing there to port.)
+
+Everything about a scan is calculated live, one cell at a time, not only
+once it finishes:
+
+- `CountsPage._on_scan_cell()` (fed by `ScanWorker.cell_done`, emitted from
+  `BellScanController.run()` on its own `QThread` and delivered to the GUI
+  thread through Qt's normal queued cross-thread signal delivery — the
+  scan itself never waits on any of this) updates a running partial
+  matrix + a boolean "filled" mask, then redraws `BellMatrixPlot` on every
+  one of the 16 settings. `update_matrix()`'s `filled` argument masks out
+  not-yet-measured cells (drawn in a neutral color, not as if they were a
+  real zero-count reading) and — the actual point — excludes them from the
+  vmin/vmax color-scale normalization, so the colormap reflects only what's
+  been measured so far and recalibrates as more cells arrive, rather than a
+  range fixed up front. The title shows an "N/16 settings measured"
+  progress line until `e`/`s` are supplied on the final call.
+- The E/S summary labels update the same way, via
+  `bell_math.e_readiness()`: it mirrors `calc_e_s`'s own 2×2-block
+  indexing (`_E_BLOCKS`) to report which of the four E values are actually
+  backed by real measurements yet, given the current filled mask. An E
+  value only appears once every cell its formula reads has a real
+  recorded count — not derived from a matrix still zero-padded for
+  unmeasured cells — and none of the four S values appear until all four
+  E values do, since each S combines all of them. Given the scan's actual
+  fill order (Alice steps outer, Bob inner — see "Bell scan" above), E1
+  becomes available after the 6th of 16 cells, E2 after the 8th, E3 after
+  the 14th, and E4 (and so S) only at the very end.
+- `CountsPage._render_bell_summary(e, s, e_ready)` is the single place
+  that turns an (E, S, readiness) triple into label text, shared between
+  the live per-cell path and the final `_on_scan_finished` call (which
+  passes an all-`True` readiness, since the worker's `matrix`/`e`/`s` at
+  that point are the authoritative completed-scan values, not
+  recomputed locally).
 
 ### Saving a completed scan
 

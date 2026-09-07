@@ -141,6 +141,13 @@ shows the same matrix colored by count rate, with E1–E4/S1–S4 annotated
 directly on the plot — a quick visual read of CHSH violation strength
 alongside the table's exact numbers.
 
+Both the heatmap and the E/S summary update live, one setting at a time, as
+the scan runs — not only once it finishes. The heatmap's color scale
+reflects only what's actually been measured so far (it recalibrates as
+each cell arrives, rather than a range fixed up front), and each E value
+appears as soon as it's genuinely derivable from recorded data — no S
+value appears until all four are, since each S combines all of them.
+
 Once a scan finishes, **Save scan** writes the 4×4 coincidence matrix to
 Settings' export directory as a tab-delimited `.txt` file, in a
 `year/month/day/NN.txt` folder structure (`NN` is the first free two-digit

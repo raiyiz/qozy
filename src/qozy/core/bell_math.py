@@ -19,6 +19,17 @@ POLARIZATION_LABELS = ("V", "H", "D", "A")
 BELL_ANGLES_DEG = (22.5, 67.5, 112.5, 157.5)
 
 
+# Which 2x2 block of the coincidence matrix each E value is computed from
+# (see calc_e_s below) -- shared with e_readiness so a live/partial
+# computation stays honest about what's actually been measured yet.
+_E_BLOCKS = (
+    (slice(0, 2), slice(0, 2)),
+    (slice(0, 2), slice(2, 4)),
+    (slice(2, 4), slice(0, 2)),
+    (slice(2, 4), slice(2, 4)),
+)
+
+
 def coincidence_matrix_from_counts(data: np.ndarray) -> np.ndarray:
     """Reshape a flat 16-value coincidence readout into a 4x4 matrix.
 
@@ -52,3 +63,21 @@ def calc_e_s(matrix: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         2,
     )
     return e, s
+
+
+def e_readiness(filled: np.ndarray) -> np.ndarray:
+    """Which of the four E values calc_e_s would return are actually
+    backed by real measurements yet, given ``filled`` — a 4x4 boolean mask
+    of which coincidence-matrix cells have a real recorded count (as
+    opposed to a live scan's not-yet-measured placeholder).
+
+    Lets a live/partial computation stay honest: E_i only counts as ready
+    once every cell in its 2x2 block (see ``_E_BLOCKS``, matching
+    ``calc_e_s``'s own indexing) has been measured, rather than treating
+    an unmeasured cell as if it were a genuine zero-count reading. None of
+    the four S values are derivable until all four E values are — each S
+    combines all of them — so ``s_ready = bool(e_readiness(filled).all())``
+    is the corresponding check for S.
+    """
+    filled = np.asarray(filled, dtype=bool)
+    return np.array([bool(filled[rows, cols].all()) for rows, cols in _E_BLOCKS])

@@ -10,6 +10,7 @@ from qozy.core.bell_math import (
     POLARIZATION_LABELS,
     calc_e_s,
     coincidence_matrix_from_counts,
+    e_readiness,
 )
 
 
@@ -204,3 +205,63 @@ def test_calc_e_s_handles_zero_counts_without_error(matrix: np.ndarray) -> None:
 def test_calc_e_s_rejects_matrices_too_small_for_4x4_indexing(shape: tuple[int, ...]) -> None:
     with pytest.raises(IndexError):
         calc_e_s(np.zeros(shape))
+
+
+# --- e_readiness ------------------------------------------------------------
+
+
+def test_e_readiness_all_unfilled_is_all_false() -> None:
+    ready = e_readiness(np.zeros((4, 4), dtype=bool))
+    assert list(ready) == [False, False, False, False]
+
+
+def test_e_readiness_all_filled_is_all_true() -> None:
+    ready = e_readiness(np.ones((4, 4), dtype=bool))
+    assert list(ready) == [True, True, True, True]
+
+
+@pytest.mark.parametrize(
+    ("filled_cells", "expected_ready"),
+    [
+        pytest.param([(0, 0), (0, 1), (1, 0), (1, 1)], [True, False, False, False], id="e1-only"),
+        pytest.param([(0, 2), (0, 3), (1, 2), (1, 3)], [False, True, False, False], id="e2-only"),
+        pytest.param([(2, 0), (2, 1), (3, 0), (3, 1)], [False, False, True, False], id="e3-only"),
+        pytest.param([(2, 2), (2, 3), (3, 2), (3, 3)], [False, False, False, True], id="e4-only"),
+        pytest.param(
+            [(0, 0), (0, 1), (1, 0), (1, 1), (0, 2), (0, 3), (1, 2), (1, 3)],
+            [True, True, False, False],
+            id="e1-and-e2-ready-after-first-two-rows",
+        ),
+        pytest.param([(0, 0), (0, 1), (1, 0)], [False, False, False, False], id="e1-one-short"),
+    ],
+)
+def test_e_readiness_matches_the_exact_block_calc_e_s_reads(
+    filled_cells: list[tuple[int, int]], expected_ready: list[bool]
+) -> None:
+    filled = np.zeros((4, 4), dtype=bool)
+    for row, col in filled_cells:
+        filled[row, col] = True
+    assert list(e_readiness(filled)) == expected_ready
+
+
+def test_e_readiness_matches_scan_order_progression() -> None:
+    """The actual order BellScanController fills cells in (row-major:
+    Alice outer, Bob inner) determines when each E becomes computable --
+    pin that down explicitly, since it's what a live UI update depends on."""
+    filled = np.zeros((4, 4), dtype=bool)
+    order = [(row, col) for row in range(4) for col in range(4)]
+
+    ready_after_each_cell = []
+    for row, col in order:
+        filled[row, col] = True
+        ready_after_each_cell.append(e_readiness(filled).copy())
+
+    # E1's block (rows 0-1, cols 0-1) completes at the 6th cell: (0,0),
+    # (0,1), (0,2), (0,3), (1,0), (1,1)
+    assert list(ready_after_each_cell[5]) == [True, False, False, False]
+    # E2's block completes two cells later, at (1,3), the 8th cell
+    assert list(ready_after_each_cell[7]) == [True, True, False, False]
+    # E3's block completes at (3,1), the 14th cell
+    assert list(ready_after_each_cell[13]) == [True, True, True, False]
+    # E4 (and so every E) isn't ready until the matrix is fully filled
+    assert list(ready_after_each_cell[15]) == [True, True, True, True]

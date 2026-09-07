@@ -21,7 +21,7 @@ from PyQt6.QtWidgets import (
 )
 
 from qozy.core.app_config import AppConfig
-from qozy.core.bell_math import POLARIZATION_LABELS
+from qozy.core.bell_math import POLARIZATION_LABELS, calc_e_s, e_readiness
 from qozy.core.controller import MeasurementController
 from qozy.core.data_model import (
     ChannelConfig,
@@ -226,8 +226,8 @@ class CountsPage(QWidget):
         self.scan_button.clicked.connect(self._run_bell_scan)
         summary_col.addWidget(self.scan_button)
 
-        self.bell_e_label = QLabel("E: —")
-        self.bell_s_label = QLabel("S: —")
+        self.bell_e_label = QLabel("E: —, —, —, —")
+        self.bell_s_label = QLabel("S: —, —, —, —")
         self.bell_s_label.setObjectName("MetricValue")
         summary_col.addWidget(self.bell_e_label)
         summary_col.addWidget(self.bell_s_label)
@@ -379,6 +379,9 @@ class CountsPage(QWidget):
         self._scan_matrix = np.zeros((4, 4))
         self._scan_filled = np.zeros((4, 4), dtype=bool)
         self.bell_plot.clear()
+        self._render_bell_summary(
+            np.zeros(4), np.zeros(4), np.zeros(4, dtype=bool)
+        )
         scan = BellScanController(
             self.controller.adapter,
             alice_stage,
@@ -413,16 +416,30 @@ class CountsPage(QWidget):
         # repaint to Qt's idle processing rather than forcing a synchronous
         # redraw for each of the 16 settings.
         self.bell_plot.update_matrix(self._scan_matrix, filled=self._scan_filled)
+        # E/S are calculated live too, from whatever's been recorded so
+        # far -- not only once the scan finishes. e_readiness() keeps this
+        # honest: an E value only shows once every cell its formula reads
+        # has a real recorded count, not a zero standing in for "not
+        # measured yet", and S never shows until every E does, since each
+        # S combines all four.
+        e, s = calc_e_s(self._scan_matrix)
+        self._render_bell_summary(e, s, e_readiness(self._scan_filled))
+
+    def _render_bell_summary(self, e: np.ndarray, s: np.ndarray, e_ready: np.ndarray) -> None:
+        e_text = ", ".join(f"{v:.2f}" if ready else "—" for v, ready in zip(e, e_ready, strict=True))
+        self.bell_e_label.setText(f"E: {e_text}")
+        if e_ready.all():
+            s_text = ", ".join(f"{v:.2f}" for v in s)
+            max_s = max((abs(v) for v in s), default=0.0)
+            self.bell_s_label.setText(f"S: {s_text}  (max |S| = {max_s:.2f})")
+        else:
+            self.bell_s_label.setText("S: —, —, —, —")
 
     def _on_scan_finished(self, matrix: np.ndarray, e: np.ndarray, s: np.ndarray) -> None:
         self._last_scan_matrix = matrix
         self._last_scan_e = e
         self._last_scan_s = s
-        e_text = ", ".join(f"{v:.2f}" for v in e)
-        s_text = ", ".join(f"{v:.2f}" for v in s)
-        max_s = max((abs(v) for v in s), default=0.0)
-        self.bell_e_label.setText(f"E: {e_text}")
-        self.bell_s_label.setText(f"S: {s_text}  (max |S| = {max_s:.2f})")
+        self._render_bell_summary(e, s, np.ones(4, dtype=bool))
         self.bell_plot.update_matrix(matrix, e=e, s=s)
         self.save_scan_button.setEnabled(True)
         self.scan_button.setEnabled(self._hardware_connected)

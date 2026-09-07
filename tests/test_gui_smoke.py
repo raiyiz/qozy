@@ -136,6 +136,45 @@ def test_counts_page_bell_scan_updates_matrix_plot(qapp) -> None:
     assert counts_page.bell_plot._ax.get_title() != ""
 
 
+def test_counts_page_bell_summary_updates_live_and_honestly(qapp) -> None:
+    """E/S must be calculated as data comes in, not only once the scan
+    finishes -- but each value should only appear once it's actually
+    derivable from real measurements (see bell_math.e_readiness), not
+    computed from a matrix still padded with not-yet-measured zeros."""
+    window = MainWindow(qapp)
+    counts_page = _page(window, 3)
+
+    assert counts_page.bell_e_label.text() == "E: —, —, —, —"
+    assert counts_page.bell_s_label.text() == "S: —, —, —, —"
+
+    e_texts: list[str] = []
+    s_texts: list[str] = []
+    original = counts_page._render_bell_summary
+
+    def spy(e, s, e_ready):
+        original(e, s, e_ready)
+        e_texts.append(counts_page.bell_e_label.text())
+        s_texts.append(counts_page.bell_s_label.text())
+
+    counts_page._render_bell_summary = spy
+    counts_page._run_bell_scan()
+    for _ in range(50):
+        qapp.processEvents()
+        if counts_page.status_label.text() == "Scan complete":
+            break
+        time.sleep(0.05)
+
+    # S never appears until every E does -- it's never partially shown
+    for e_text, s_text in zip(e_texts[:-1], s_texts[:-1], strict=True):
+        if "—" in e_text:
+            assert s_text == "S: —, —, —, —"
+
+    # by the end, both are fully populated with real numbers
+    assert "—" not in e_texts[-1]
+    assert "—" not in s_texts[-1]
+    assert "max |S| =" in s_texts[-1]
+
+
 def test_counts_page_bell_scan_updates_heatmap_live_per_cell(qapp) -> None:
     """The heatmap should update as each of the 16 settings completes, not
     only once at the very end -- and each of those live updates must show
