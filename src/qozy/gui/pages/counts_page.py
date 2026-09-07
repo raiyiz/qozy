@@ -24,11 +24,10 @@ from PyQt6.QtWidgets import (
 
 from qozy.core.app_config import AppConfig
 from qozy.core.bell_acquisition import (
-    BellAcquisitionMode,
-    BellAcquisitionOptions,
     BellChannelMap,
     BellMatrixAccumulator,
     SequentialBellAcquisition,
+    SimultaneousBellAcquisition,
 )
 from qozy.core.bell_math import POLARIZATION_LABELS
 from qozy.core.controller import MeasurementController
@@ -71,9 +70,9 @@ class CountsPage(QWidget):
         self._fallback_alice_stage = SimulatorStage() if hardware is None else None
         self._fallback_bob_stage = SimulatorStage() if hardware is None else None
         self._thread = None
+        self._scan_thread = None
         self._worker = None
         self._bell_acquisition = None
-        self._bell_live_simultaneous = False
         self._bell_accumulator = BellMatrixAccumulator()
         self._last_scan_matrix: np.ndarray | None = None
         self._last_scan_e: np.ndarray | None = None
@@ -190,6 +189,7 @@ class CountsPage(QWidget):
         self.bell_table.setFixedHeight(300)
         self.bell_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.bell_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.bell_table.horizontalHeader().setStretchLastSection(True)
         self._clear_bell_table()
         table_col.addWidget(self.bell_table, 0)
         self.bell_plot = BellMatrixPlot()
@@ -258,12 +258,12 @@ class CountsPage(QWidget):
 
     def _start_worker(self, bell_acquisition=None, status: str = "Starting acquisition…") -> None:
         self._bell_acquisition = bell_acquisition
-        self._bell_live_simultaneous = self.simultaneous_radio.isChecked()
         self._bell_accumulator.reset()
         self._clear_bell_table()
         self._thread, self._worker = make_worker_thread(
             self.controller, interval_ms=100, bell_acquisition=bell_acquisition
         )
+        self._scan_thread = self._thread
         self._worker.data_ready.connect(self._on_data)
         self._worker.bell_updated.connect(self._on_bell_updated)
         self._worker.error.connect(self._on_error)
@@ -276,7 +276,7 @@ class CountsPage(QWidget):
         self.status_label.setText(status)
         self.acquisition_changed.emit(True)
 
-    def _make_sequential_bell_acquisition(self):
+    def _make_sequential_bell_acquisition(self) -> SequentialBellAcquisition:
         self._prepare_controller_config()
         if self.hardware is not None and not (
             self.hardware.stage_connected["alice"] and self.hardware.stage_connected["bob"]
@@ -291,26 +291,39 @@ class CountsPage(QWidget):
             bob_stage,
             alice,
             bob,
-            BellAcquisitionOptions(
-                mode=BellAcquisitionMode.SEQUENTIAL,
-                integration_time_s=0.5,
-            ),
+            integration_time_s=0.5,
         )
+
+    def _make_simultaneous_bell_acquisition(self) -> SimultaneousBellAcquisition:
+        self._prepare_controller_config()
+        alice_count = len(self.controller.config.alice_channels)
+        bob_count = len(self.controller.config.bob_channels)
+        coincidence_count = min(16, alice_count * bob_count)
+        if coincidence_count <= 0:
+            raise ValueError("at least one Alice/Bob channel pair is required")
+        return SimultaneousBellAcquisition(
+            BellChannelMap.row_major(coincidence_count),
+            coincidence_offset=alice_count + bob_count,
+        )
+
+    def _run_bell_scan(self) -> None:
+        """Start the sequential workflow; kept as a compatibility entry point."""
+        self.sequential_radio.setChecked(True)
+        self._start()
 
     def _start(self) -> None:
         if self._worker is not None:
             return
         try:
-            self._prepare_controller_config()
             acquisition = (
                 self._make_sequential_bell_acquisition()
                 if self.sequential_radio.isChecked()
-                else None
+                else self._make_simultaneous_bell_acquisition()
             )
         except (ValueError, TypeError) as exc:
-            self.status_label.setText(f"Settings error: {exc}")
+            self.status_label.setText(f"Error: {exc}")
             return
-        mode = "sequential Bell" if acquisition is not None else "live Bell matrix"
+        mode = "sequential Bell" if isinstance(acquisition, SequentialBellAcquisition) else "live Bell"
         self._start_worker(acquisition, f"Starting counts + {mode}…")
 
     def _bell_scan_stages(self) -> tuple[PositionerAdapter, PositionerAdapter]:
@@ -321,8 +334,9 @@ class CountsPage(QWidget):
         return self._fallback_alice_stage, self._fallback_bob_stage
 
     def _on_started(self) -> None:
-        if self._bell_acquisition is None:
-            self.status_label.setText("Acquiring counts + live Bell matrix…")
+        if isinstance(self._bell_acquisition, SimultaneousBellAcquisition):
+            count = len(self._bell_acquisition.channel_map.cells)
+            self.status_label.setText(f"Bell acquisition · Simultaneous · {count} coincidence channels active")
 
     def _stop(self) -> None:
         if self._worker is not None:
@@ -332,7 +346,9 @@ class CountsPage(QWidget):
             self._set_stopped()
 
     def _on_thread_finished(self) -> None:
+        acquisition = self._bell_acquisition
         self._thread = None
+        self._scan_thread = None
         self._worker = None
         if self._bell_accumulator.filled.any():
             self._last_scan_matrix = self._bell_accumulator.matrix.copy()
@@ -342,13 +358,14 @@ class CountsPage(QWidget):
             if self.auto_save_checkbox.isChecked():
                 self._save_scan_matrix(auto=True)
         self._bell_acquisition = None
-        self._bell_live_simultaneous = False
-        self._set_stopped()
+        self._set_stopped(completed=isinstance(acquisition, SequentialBellAcquisition) and acquisition.done)
 
-    def _set_stopped(self) -> None:
+    def _set_stopped(self, completed: bool = False) -> None:
         self.start_button.setEnabled(self._hardware_connected)
         self.stop_button.setEnabled(False)
-        if not self.status_label.text().startswith("Error:") and not self.status_label.text().startswith("Scan complete"):
+        if completed:
+            self.status_label.setText("Scan complete")
+        elif not self.status_label.text().startswith("Error:") and not self.status_label.text().startswith("Scan complete"):
             self.status_label.setText("Stopped")
         self.acquisition_changed.emit(False)
 
@@ -366,32 +383,8 @@ class CountsPage(QWidget):
         self.plot_panel.set_traces(t, alice, bob, corr)
         self._update_coincidence_labels(state)
 
-        if self._bell_live_simultaneous and self.live_bell_checkbox.isChecked():
-            self._update_live_bell_matrix(state)
-        elif self._bell_acquisition is None:
+        if self._bell_acquisition is None and not self.status_label.text().startswith("Error:"):
             self.status_label.setText(f"Acquiring… last counter shape: {counter.shape}")
-
-    def _update_live_bell_matrix(self, state: MeasurementState) -> None:
-        total = state.total_counts_data
-        if total is None:
-            return
-        total = np.asarray(total, dtype=float).reshape(-1)
-        alice_count = len(self.controller.config.alice_channels)
-        bob_count = len(self.controller.config.bob_channels)
-        coincidence_count = alice_count * bob_count
-        if coincidence_count <= 0:
-            return
-        offset = alice_count + bob_count
-        mapping = BellChannelMap.row_major(min(16, coincidence_count))
-        channel_indices = mapping.coincidence_indices.values()
-        required = offset + max(channel_indices, default=-1) + 1
-        if total.size < required:
-            return
-        for (row, col), channel_index in mapping.coincidence_indices.items():
-            self._bell_accumulator.update_cell(row, col, float(total[offset + channel_index]))
-        self._render_bell()
-        filled = int(self._bell_accumulator.filled.sum())
-        self.status_label.setText(f"Acquiring counts + live Bell matrix… {filled}/16 cells")
 
     def _update_coincidence_labels(self, state: MeasurementState) -> None:
         labels = state.countrate_labels
@@ -412,27 +405,33 @@ class CountsPage(QWidget):
         )
 
     def _on_bell_updated(self, update) -> None:
+        if isinstance(self._bell_acquisition, SimultaneousBellAcquisition) and not self.live_bell_checkbox.isChecked():
+            return
         self._bell_accumulator.update_matrix(update.matrix, update.filled)
         self._render_bell()
-        if update.row is not None and update.col is not None and self._bell_acquisition is not None:
-            if isinstance(self._bell_acquisition, SequentialBellAcquisition):
-                elapsed = max(0.0, time.monotonic() - self._bell_acquisition._started_at)
-                progress = self._bell_acquisition.completed_cells + 1
+        if isinstance(self._bell_acquisition, SequentialBellAcquisition):
+            state = self._bell_acquisition.state
+            if not update.done:
+                progress = state.completed_cells + 1
                 self.status_label.setText(
-                    f"Sequential Bell · Alice {POLARIZATION_LABELS[update.row]} · "
-                    f"Bob {POLARIZATION_LABELS[update.col]} · cell {progress}/16 · "
-                    f"{min(elapsed, self._bell_acquisition.options.integration_time_s):.1f}/"
-                    f"{self._bell_acquisition.options.integration_time_s:.1f} s"
+                    f"Sequential Bell · Alice {POLARIZATION_LABELS[state.row]} · "
+                    f"Bob {POLARIZATION_LABELS[state.col]} · cell {progress}/16 · "
+                    f"{state.elapsed_s:.1f}/{state.integration_time_s:.1f} s"
                 )
+        elif isinstance(self._bell_acquisition, SimultaneousBellAcquisition):
+            filled = int(self._bell_accumulator.filled.sum())
+            self.status_label.setText(
+                f"Bell acquisition · Simultaneous · {filled}/16 mapped cells updating"
+            )
         if update.done:
             self.status_label.setText("Scan complete")
 
     def _render_bell(self, *_args) -> None:
         if not self._bell_accumulator.filled.any():
             self._clear_bell_table()
+            self.bell_plot.set_live_context(None, None)
             self.bell_plot.clear()
-            self.bell_e_label.setText("E: —, —, —, —")
-            self.bell_s_label.setText("S: —, —, —, —")
+            self._render_bell_summary(np.zeros(4), np.zeros(4), np.zeros(4, dtype=bool))
             return
         matrix = (
             self._bell_accumulator.normalized_matrix()
@@ -450,15 +449,36 @@ class CountsPage(QWidget):
                     self.bell_table.setItem(row, col, QTableWidgetItem(text))
                 else:
                     self.bell_table.setItem(row, col, QTableWidgetItem("—"))
-        self.bell_plot.update_matrix(matrix, filled=self._bell_accumulator.filled)
+
+        active_cell = None
+        plot_title = None
+        if isinstance(self._bell_acquisition, SequentialBellAcquisition) and not self._bell_acquisition.done:
+            state = self._bell_acquisition.state
+            active_cell = (state.row, state.col)
+            plot_title = f"Scanning…  {state.completed_cells + 1}/16 settings measured"
+        elif isinstance(self._bell_acquisition, SimultaneousBellAcquisition):
+            filled = int(self._bell_accumulator.filled.sum())
+            plot_title = f"Live matrix · {filled}/16 mapped cells"
+        self.bell_plot.set_live_context(plot_title, active_cell)
+        raw_total = float(np.sum(self._bell_accumulator.matrix[self._bell_accumulator.filled]))
+        self.bell_plot.update_matrix(
+            matrix,
+            filled=self._bell_accumulator.filled,
+            color_reference_total=raw_total,
+        )
         e = self._bell_accumulator.e_values()
         s = self._bell_accumulator.s_values()
         ready = self._bell_accumulator.e_readiness()
-        e_text = ", ".join(f"{v:.2f}" if ok else "—" for v, ok in zip(e, ready, strict=True))
+        self._render_bell_summary(e, s, ready)
+
+    def _render_bell_summary(self, e: np.ndarray, s: np.ndarray, e_ready: np.ndarray) -> None:
+        e_text = ", ".join(f"{v:.2f}" if ok else "—" for v, ok in zip(e, e_ready, strict=True))
         self.bell_e_label.setText(f"E: {e_text}")
-        self.bell_s_label.setText(
-            "S: " + (", ".join(f"{v:.2f}" for v in s) if ready.all() else "—, —, —, —")
-        )
+        if e_ready.all():
+            values = ", ".join(f"{v:.2f}" for v in s)
+            self.bell_s_label.setText(f"S: {values} · max |S| = {float(np.max(np.abs(s))):.2f}")
+        else:
+            self.bell_s_label.setText("S: —, —, —, —")
 
     def _clear_bell_table(self) -> None:
         for row in range(4):
