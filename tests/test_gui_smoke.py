@@ -136,6 +136,41 @@ def test_counts_page_bell_scan_updates_matrix_plot(qapp) -> None:
     assert counts_page.bell_plot._ax.get_title() != ""
 
 
+def test_counts_page_bell_scan_updates_heatmap_live_per_cell(qapp) -> None:
+    """The heatmap should update as each of the 16 settings completes, not
+    only once at the very end -- and each of those live updates must show
+    the not-yet-measured cells as still pending rather than plotted as if
+    they were real zero-count readings."""
+    window = MainWindow(qapp)
+    counts_page = _page(window, 3)
+
+    live_titles: list[str] = []
+    filled_counts: list[int] = []
+    original = counts_page.bell_plot.update_matrix
+
+    def spy(matrix, filled=None, e=None, s=None):
+        original(matrix, filled=filled, e=e, s=s)
+        live_titles.append(counts_page.bell_plot._ax.get_title())
+        if filled is not None:
+            filled_counts.append(int(filled.sum()))
+
+    counts_page.bell_plot.update_matrix = spy
+    counts_page._run_bell_scan()
+    for _ in range(50):
+        qapp.processEvents()
+        if counts_page.status_label.text() == "Scan complete":
+            break
+        time.sleep(0.05)
+
+    # 16 live per-cell updates plus the final completed-scan update
+    assert len(live_titles) == 17
+    assert filled_counts == list(range(1, 17))
+    assert live_titles[0] == "Scanning…  1/16 settings measured"
+    assert live_titles[-2] == "Scanning…  16/16 settings measured"
+    assert "Scanning" not in live_titles[-1]
+    assert "E1=" in live_titles[-1]
+
+
 def test_counts_page_bell_table_and_plot_are_stacked_without_a_gap(qapp) -> None:
     """A stretch item once ended up between the coincidence table and its
     own heatmap (see git history: 'small: fixed spacing between titles and

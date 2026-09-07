@@ -71,6 +71,8 @@ class CountsPage(QWidget):
         self._last_scan_matrix: np.ndarray | None = None
         self._last_scan_e: np.ndarray | None = None
         self._last_scan_s: np.ndarray | None = None
+        self._scan_matrix = np.zeros((4, 4))
+        self._scan_filled = np.zeros((4, 4), dtype=bool)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(32, 28, 32, 28)
@@ -374,6 +376,8 @@ class CountsPage(QWidget):
         for r in range(4):
             for c in range(4):
                 self.bell_table.setItem(r, c, QTableWidgetItem("—"))
+        self._scan_matrix = np.zeros((4, 4))
+        self._scan_filled = np.zeros((4, 4), dtype=bool)
         self.bell_plot.clear()
         scan = BellScanController(
             self.controller.adapter,
@@ -400,6 +404,15 @@ class CountsPage(QWidget):
 
     def _on_scan_cell(self, row: int, col: int, value: float) -> None:
         self.bell_table.setItem(row, col, QTableWidgetItem(f"{value:.0f}"))
+        self._scan_matrix[row, col] = value
+        self._scan_filled[row, col] = True
+        # Live per-cell update, no blocking: this handler already runs on
+        # the GUI thread via Qt's normal (automatically queued) cross-thread
+        # signal delivery from ScanWorker's own QThread -- the scan itself
+        # never waits on this call -- and draw_idle() defers the actual
+        # repaint to Qt's idle processing rather than forcing a synchronous
+        # redraw for each of the 16 settings.
+        self.bell_plot.update_matrix(self._scan_matrix, filled=self._scan_filled)
 
     def _on_scan_finished(self, matrix: np.ndarray, e: np.ndarray, s: np.ndarray) -> None:
         self._last_scan_matrix = matrix
@@ -410,7 +423,7 @@ class CountsPage(QWidget):
         max_s = max((abs(v) for v in s), default=0.0)
         self.bell_e_label.setText(f"E: {e_text}")
         self.bell_s_label.setText(f"S: {s_text}  (max |S| = {max_s:.2f})")
-        self.bell_plot.update_matrix(matrix, e, s)
+        self.bell_plot.update_matrix(matrix, e=e, s=s)
         self.save_scan_button.setEnabled(True)
         self.scan_button.setEnabled(self._hardware_connected)
         self.start_button.setEnabled(self._hardware_connected)
