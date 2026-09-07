@@ -5,7 +5,7 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass
 from enum import Enum
-from typing import Protocol
+from typing import Protocol, Sequence
 
 import numpy as np
 
@@ -20,12 +20,16 @@ class BellAcquisitionMode(str, Enum):
     SIMULTANEOUS = "simultaneous"
 
 
-@dataclass
+@dataclass(frozen=True)
 class BellAcquisitionOptions:
     """Settings for a Bell acquisition strategy."""
 
     mode: BellAcquisitionMode = BellAcquisitionMode.SEQUENTIAL
     integration_time_s: float = 0.5
+
+    def __post_init__(self) -> None:
+        if self.integration_time_s <= 0:
+            raise ValueError("integration_time_s must be positive")
 
 
 @dataclass(frozen=True)
@@ -94,7 +98,7 @@ class BellMatrixAccumulator:
         measured = result[self.filled]
         maximum = float(np.max(measured)) if measured.size else 0.0
         if maximum > 0.0:
-            result /= maximum
+            result[self.filled] /= maximum
         return result
 
     def e_values(self) -> np.ndarray:
@@ -112,7 +116,7 @@ class BellMatrixAccumulator:
 
 @dataclass(frozen=True)
 class BellUpdate:
-    """Snapshot returned by a Bell acquisition strategy after an update."""
+    """Snapshot emitted after each Bell acquisition poll."""
 
     matrix: np.ndarray
     filled: np.ndarray
@@ -120,6 +124,16 @@ class BellUpdate:
     col: int | None = None
     completed: bool = False
     done: bool = False
+
+    def __iter__(self):
+        """Preserve the old four-value unpacking used by early clients."""
+        value = 0.0
+        if self.row is not None and self.col is not None:
+            value = float(self.matrix[self.row, self.col])
+        yield self.row
+        yield self.col
+        yield value
+        yield self.done
 
 
 class BellAcquisition(Protocol):
@@ -135,9 +149,61 @@ class BellAcquisition(Protocol):
 
     def update(self, total_counts: object) -> BellUpdate: ...
 
+    def stop(self) -> None: ...
+
+
+class SimultaneousBellAcquisition:
+    """Populate all mapped matrix cells from cumulative coincidence totals."""
+
+    def __init__(self, channel_map: BellChannelMap, coincidence_offset: int) -> None:
+        if coincidence_offset < 0:
+            raise ValueError("coincidence_offset must be non-negative")
+        self.channel_map = channel_map
+        self.coincidence_offset = coincidence_offset
+        self.matrix = BellMatrixAccumulator()
+        self._done = False
+
+    @property
+    def done(self) -> bool:
+        return self._done
+
+    def start(self, total_counts: object) -> BellUpdate:
+        self.matrix.reset()
+        self._done = False
+        return self.update(total_counts)
+
+    def update(self, total_counts: object) -> BellUpdate:
+        values = np.asarray(total_counts, dtype=float).reshape(-1)
+        required = [self.coincidence_offset + index for index in self.channel_map.coincidence_indices.values()]
+        if required and values.size <= max(required):
+            raise ValueError(
+                "Simultaneous Bell acquisition requires all configured coincidence channels"
+            )
+        for cell, index in self.channel_map.coincidence_indices.items():
+            self.matrix.update_cell(*cell, values[self.coincidence_offset + index])
+        return BellUpdate(
+            self.matrix.matrix.copy(),
+            self.matrix.filled.copy(),
+        )
+
+    def stop(self) -> None:
+        self._done = True
+
+
+@dataclass(frozen=True)
+class SequentialBellState:
+    """Current progress of a sequential Bell scan."""
+
+    row: int
+    col: int
+    elapsed_s: float
+    integration_time_s: float
+    completed_cells: int
+    total_cells: int
+
 
 class SequentialBellAcquisition:
-    """Cycle through Bell settings and integrate one matrix cell at a time."""
+    """Cycle the 16 polarization settings over an existing acquisition."""
 
     def __init__(
         self,
@@ -146,16 +212,22 @@ class SequentialBellAcquisition:
         bob_stage: PositionerAdapter,
         alice_channels: list[int],
         bob_channels: list[int],
-        config: BellAcquisitionOptions | None = None,
-        settings_deg: tuple[float, ...] = BELL_ANGLES_DEG,
+        settings_deg: Sequence[float] = BELL_ANGLES_DEG,
+        integration_time_s: float = 0.5,
     ) -> None:
+        if len(settings_deg) != 4:
+            raise ValueError("a Bell acquisition requires four polarization settings")
+        if integration_time_s <= 0:
+            raise ValueError("integration_time_s must be positive")
+        if not alice_channels or not bob_channels:
+            raise ValueError("at least one Alice and one Bob channel are required")
         self.adapter = adapter
         self.alice_stage = alice_stage
         self.bob_stage = bob_stage
-        self.alice_channels = alice_channels
-        self.bob_channels = bob_channels
-        self.options = config or BellAcquisitionOptions()
-        self.settings_deg = settings_deg
+        self.alice_channels = list(alice_channels)
+        self.bob_channels = list(bob_channels)
+        self.settings_deg = tuple(float(angle) for angle in settings_deg)
+        self.integration_time_s = float(integration_time_s)
         self.matrix = BellMatrixAccumulator()
         self.row = 0
         self.col = 0
@@ -170,49 +242,62 @@ class SequentialBellAcquisition:
 
     @property
     def completed_cells(self) -> int:
-        return self.row * len(self.settings_deg) + self.col if not self._done else len(self.settings_deg) ** 2
+        return self._completed_cells()
+
+    @property
+    def state(self) -> SequentialBellState:
+        elapsed = 0.0 if not self._started_at else max(0.0, time.monotonic() - self._started_at)
+        return SequentialBellState(
+            row=self.row,
+            col=self.col,
+            elapsed_s=min(elapsed, self.integration_time_s) if not self._done else self.integration_time_s,
+            integration_time_s=self.integration_time_s,
+            completed_cells=self._completed_cells(),
+            total_cells=len(self.settings_deg) ** 2,
+        )
 
     def start(self, total_counts: object) -> BellUpdate:
+        self.matrix.reset()
         self.row = 0
         self.col = 0
-        self.matrix.reset()
         self._done = False
         self._move_to_current_cell()
-        self._baseline = self._coincidence_total(self.adapter.get_total_counts())
+        self._baseline = self._coincidence_total(total_counts)
         self._started_at = time.monotonic()
-        return self._snapshot(completed=False)
+        return self._snapshot()
 
     def update(self, total_counts: object) -> BellUpdate:
         if self._done:
-            return self._snapshot(completed=True)
+            return self._snapshot()
 
         value = max(0.0, self._coincidence_total(total_counts) - self._baseline)
         self.matrix.update_cell(self.row, self.col, value)
-        if time.monotonic() - self._started_at < self.options.integration_time_s:
-            return self._snapshot(completed=False)
+        if time.monotonic() - self._started_at < self.integration_time_s:
+            return self._snapshot()
 
         completed_row, completed_col = self.row, self.col
+        if self.col == len(self.settings_deg) - 1 and self.row == len(self.settings_deg) - 1:
+            self._done = True
+            return self._snapshot(completed_row, completed_col, completed=True)
+
         if self.col == len(self.settings_deg) - 1:
-            if self.row == len(self.settings_deg) - 1:
-                self._done = True
-                return self._snapshot(
-                    completed=True, row=completed_row, col=completed_col
-                )
             self.row += 1
             self.col = 0
         else:
             self.col += 1
-
         self._move_to_current_cell()
-        self._baseline = self._coincidence_total(self.adapter.get_total_counts())
+        self._baseline = self._coincidence_total(total_counts)
         self._started_at = time.monotonic()
-        return self._snapshot(completed=True, row=completed_row, col=completed_col)
+        return self._snapshot(completed_row, completed_col, completed=True)
+
+    def stop(self) -> None:
+        self._done = True
 
     def _snapshot(
         self,
-        completed: bool,
         row: int | None = None,
         col: int | None = None,
+        completed: bool = False,
     ) -> BellUpdate:
         return BellUpdate(
             self.matrix.matrix.copy(),
@@ -222,6 +307,11 @@ class SequentialBellAcquisition:
             completed,
             self._done,
         )
+
+    def _completed_cells(self) -> int:
+        if self._done:
+            return len(self.settings_deg) ** 2
+        return self.row * len(self.settings_deg) + self.col
 
     def _move_to_current_cell(self) -> None:
         a_angle = self.settings_deg[self.row]
@@ -243,84 +333,5 @@ class SequentialBellAcquisition:
         return float(np.sum(values[offset : offset + count]))
 
 
-@dataclass(frozen=True)
-class SequentialBellState:
-    """Current progress of a sequential Bell scan."""
-
-    row: int
-    col: int
-    elapsed_s: float
-    integration_time_s: float
-    completed_cells: int
-    total_cells: int
-
-
-class SequentialBellAcquisition:
-    """Cycle the 16 polarization settings over an existing acquisition.
-
-    The acquisition itself remains owned by ``MeasurementController``. This
-    object only moves stages and interprets cumulative coincidence counts, so
-    every worker poll can update the currently active matrix cell.
-    """
-
-    def __init__(
-        self,
-        adapter: MeasurementAdapter,
-        alice_stage: PositionerAdapter,
-        bob_stage: PositionerAdapter,
-        alice_channels: list[int],
-        bob_channels: list[int],
-        settings_deg: Sequence[float] = BELL_ANGLES_DEG,
-        integration_time_s: float = 0.5,
-    ) -> None:
-        if len(settings_deg) != 4:
-            raise ValueError("a Bell acquisition requires four polarization settings")
-        if integration_time_s <= 0:
-            raise ValueError("integration_time_s must be positive")
-        self.adapter = adapter
-        self.alice_stage = alice_stage
-        self.bob_stage = bob_stage
-        self.alice_channels = alice_channels
-        self.bob_channels = bob_channels
-        self.settings_deg = tuple(float(angle) for angle in settings_deg)
-        self.integration_time_s = float(integration_time_s)
-        self.matrix = BellMatrixAccumulator()
-        self.row = 0
-        self.col = 0
-        self._baseline = 0.0
-        self._started_at = 0.0
-        self._done = False
-        self._set_angle_context = getattr(adapter, "set_angle_context", None)
-
-    @property
-    def done(self) -> bool:
-        return self._done
-
-    def start(self, total_counts: object) -> BellUpdate:
-        self.matrix.reset()
-        self._done = False
-        return self.update(total_counts)
-
-    def update(self, total_counts: object) -> BellUpdate:
-        values = np.asarray(total_counts, dtype=float).reshape(-1)
-        required = [
-            self.coincidence_offset + index
-            for index in self.channel_map.coincidence_indices.values()
-        ]
-        if required and values.size <= max(required):
-            raise ValueError(
-                "Sequential Bell acquisition requires cumulative coincidence totals "
-                "from the configured acquisition"
-            )
-        for cell, index in self.channel_map.coincidence_indices.items():
-            self.matrix.update_cell(*cell, values[self.coincidence_offset + index])
-        return BellUpdate(
-            self.matrix.matrix.copy(), self.matrix.filled.copy(), done=False
-        )
-
-    def stop(self) -> None:
-        self._done = True
-
-
-# Backwards-compatible alias while callers migrate from the old name.
+# Backwards-compatible alias for older callers.
 LiveBellScan = SequentialBellAcquisition
