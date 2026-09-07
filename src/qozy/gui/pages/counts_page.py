@@ -366,9 +366,6 @@ class CountsPage(QWidget):
         self.plot_panel.set_traces(t, alice, bob, corr)
         self._update_coincidence_labels(state)
 
-        # Simultaneous Bell analysis is a view of the same cumulative totals
-        # used by the count page. No second acquisition and no Bell-scan worker
-        # are started for this mode.
         if self._bell_live_simultaneous and self.live_bell_checkbox.isChecked():
             self._update_live_bell_matrix(state)
         elif self._bell_acquisition is None:
@@ -386,7 +383,8 @@ class CountsPage(QWidget):
             return
         offset = alice_count + bob_count
         mapping = BellChannelMap.row_major(min(16, coincidence_count))
-        required = offset + mapping.coincidence_indices.size
+        channel_indices = mapping.coincidence_indices.values()
+        required = offset + max(channel_indices, default=-1) + 1
         if total.size < required:
             return
         for (row, col), channel_index in mapping.coincidence_indices.items():
