@@ -48,6 +48,23 @@ def test_total_counts_accumulate_while_running() -> None:
     assert np.any(second > first)
 
 
+def test_total_counts_have_16_live_coincidence_channels() -> None:
+    sim = SimulatorAdapter(seed=0)
+    sim.connect()
+    sim.setup_sm()
+    alice = [1, 2, 3, 4]
+    bob = [5, 6, 7, 8]
+    sim.setup_counters(alice + bob, counts_bin_width_ms=100.0, counts_time_frame_s=1.0)
+    sim.setup_coincidences(alice, bob, coin_time_window_ns=2.0)
+    sim.setup_countrates(alice + bob + list(range(16)))
+    sim.start_sm()
+    first = sim.get_total_counts()
+    second = sim.get_total_counts()
+    assert first.shape == (24,)
+    assert np.all(second[8:] >= first[8:])
+    assert np.any(second[8:] > first[8:])
+
+
 def test_disconnect_does_not_raise() -> None:
     sim = make_adapter()
     sim.stop_sm()
