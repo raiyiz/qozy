@@ -8,6 +8,7 @@ import numpy as np
 from matplotlib import colormaps
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
+from matplotlib.patches import Rectangle
 from PyQt6.QtWidgets import QVBoxLayout, QWidget
 
 from qozy.core.bell_math import POLARIZATION_LABELS
@@ -26,9 +27,32 @@ class BellMatrixPlot(QWidget):
         self.canvas.setMinimumHeight(260)
         layout.addWidget(self.canvas)
         self._ax = self.figure.add_subplot(111)
+        self._live_context: str | None = None
+        self._active_cell: tuple[int, int] | None = None
+        self._color_reference_total: float | None = None
         self.clear()
 
+    def set_live_context(
+        self,
+        title: str | None,
+        active_cell: tuple[int, int] | None,
+    ) -> None:
+        """Set optional live-acquisition title and active-cell highlight."""
+        if active_cell is not None and not (
+            0 <= active_cell[0] < 4 and 0 <= active_cell[1] < 4
+        ):
+            raise ValueError(f"invalid Bell matrix cell {active_cell}")
+        self._live_context = title
+        self._active_cell = active_cell
+
+    def set_color_reference_total(self, total: float | None) -> None:
+        """Use raw measured counts to determine heatmap intensity."""
+        self._color_reference_total = None if total is None else max(float(total), 0.0)
+
     def clear(self) -> None:
+        self._live_context = None
+        self._active_cell = None
+        self._color_reference_total = None
         self._ax.clear()
         self._ax.set_axis_off()
         self._ax.text(
@@ -51,13 +75,7 @@ class BellMatrixPlot(QWidget):
         s: np.ndarray | None = None,
         color_reference_total: float | None = None,
     ) -> None:
-        """Redraw using total-count-normalized values for the heatmap.
-
-        ``matrix`` is the numeric display matrix and may be normalized.
-        ``color_reference_total`` is independent of that display choice, so
-        colors retain their physical meaning even when the table is shown
-        normalized. If omitted, the sum of measured matrix cells is used.
-        """
+        """Redraw the matrix while keeping measurement state separate from display state."""
         values = np.asarray(matrix, dtype=float)
         if values.shape != (4, 4):
             raise ValueError(f"expected a 4x4 matrix, got {values.shape}")
@@ -73,6 +91,8 @@ class BellMatrixPlot(QWidget):
 
         cmap = colormaps["coolwarm"].with_extremes(bad=_UNFILLED_COLOR)
         if color_reference_total is None:
+            color_reference_total = self._color_reference_total
+        if color_reference_total is None:
             color_reference_total = float(np.sum(values[filled]))
         total = max(float(color_reference_total), 0.0)
         color_values = np.zeros_like(values, dtype=float)
@@ -80,7 +100,7 @@ class BellMatrixPlot(QWidget):
             color_values[filled] = values[filled] / total
 
         color_display = np.ma.masked_array(color_values, mask=~filled)
-        self._ax.imshow(color_display, cmap=cmap, aspect="auto", vmin=0.0, vmax=1.0)
+        self._ax.imshow(color_display, cmap=cmap, aspect="equal", vmin=0.0, vmax=1.0)
         self._ax.set_xticks(range(values.shape[1]))
         self._ax.set_xticklabels(_BOB_ANGLE_LABELS[: values.shape[1]])
         self._ax.set_yticks(range(values.shape[0]))
@@ -104,12 +124,27 @@ class BellMatrixPlot(QWidget):
                     color=text_color,
                 )
 
-        if e is not None and s is not None:
+        if self._active_cell is not None and filled[self._active_cell]:
+            row, col = self._active_cell
+            self._ax.add_patch(
+                Rectangle(
+                    (col - 0.5, row - 0.5),
+                    1,
+                    1,
+                    fill=False,
+                    linewidth=2,
+                    edgecolor="#111827",
+                )
+            )
+
+        if self._live_context is not None:
+            title = self._live_context
+        elif e is not None and s is not None:
             e_text = "  ".join(f"E{i + 1}={v:.2f}" for i, v in enumerate(e))
             s_text = "  ".join(f"S{i + 1}={v:.2f}" for i, v in enumerate(s))
             title = f"{e_text}\n{s_text}"
         else:
-            title = f"Live matrix · {int(np.count_nonzero(filled))}/{filled.size} settings measured"
+            title = f"Scanning…  {int(np.count_nonzero(filled))}/{filled.size} settings measured"
         self._ax.set_title(title, fontsize=9)
         self.canvas.draw_idle()
 
