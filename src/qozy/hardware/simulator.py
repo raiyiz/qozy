@@ -20,6 +20,7 @@ class SimulatorAdapter:
         self._rng = np.random.default_rng(seed)
         self._phase = 0.0
         self._connected = False
+        self._running = False
         self._angle_context: tuple[float, float] | None = None
 
         self._counter_channels: list[int] = []
@@ -27,6 +28,7 @@ class SimulatorAdapter:
         self._counts_bin_number = 50
 
         self._countrate_channels: list[int] = []
+        self._total_counts = np.zeros(0, dtype=float)
 
         self._corr_b_channels: list[int] = []
         self._corr_bin_width_ns = 1.0
@@ -41,6 +43,7 @@ class SimulatorAdapter:
         self._connected = True
 
     def disconnect(self) -> None:
+        self._running = False
         self._connected = False
 
     def is_connected(self) -> bool:
@@ -65,6 +68,7 @@ class SimulatorAdapter:
 
     def setup_countrates(self, channels: list[int]) -> None:
         self._countrate_channels = list(channels)
+        self._total_counts = np.zeros(len(channels), dtype=float)
 
     def setup_coincidences(
         self, a_channels: list[int], b_channels: list[int], coin_time_window_ns: float
@@ -87,10 +91,11 @@ class SimulatorAdapter:
         self._corr_bin_number = int(np.ceil(corr_time_frame_ns / corr_bin_width_ns))
 
     def start_sm(self) -> None:
-        pass
+        self._total_counts = np.zeros(len(self._countrate_channels), dtype=float)
+        self._running = True
 
     def stop_sm(self) -> None:
-        pass
+        self._running = False
 
     def measure_for_sm(self, time_frame_s: float) -> None:
         self._phase += 0.05
@@ -118,21 +123,53 @@ class SimulatorAdapter:
             results.append(np.vstack((index, np.clip(envelope, 0, None))))
         return results
 
+    def _coincidence_rates(self) -> np.ndarray:
+        count = len(self._last_alice_channels) * len(self._last_bob_channels)
+        if count == 0:
+            return np.zeros(0, dtype=float)
+        if self._angle_context is not None:
+            alice_angles = [self._angle_context[0]] * len(self._last_alice_channels)
+            bob_angles = [self._angle_context[1]] * len(self._last_bob_channels)
+        else:
+            angles = (22.5, 67.5, 112.5, 157.5)
+            alice_angles = [angles[i % 4] for i in range(len(self._last_alice_channels))]
+            bob_angles = [angles[i % 4] for i in range(len(self._last_bob_channels))]
+        rates = []
+        for alice_deg in alice_angles:
+            for bob_deg in bob_angles:
+                delta = np.deg2rad(alice_deg - bob_deg)
+                rates.append(500.0 * (1.0 + 0.9 * np.cos(2.0 * delta)))
+        return np.asarray(rates, dtype=float)
+
+    def _live_rates(self) -> np.ndarray:
+        n = len(self._countrate_channels)
+        rates = np.zeros(n, dtype=float)
+        singles = len(self._last_alice_channels) + len(self._last_bob_channels)
+        if singles:
+            rates[: min(singles, n)] = 5000.0 + 250.0 * np.arange(min(singles, n))
+        coincidence_rates = self._coincidence_rates()
+        end = min(n, singles + len(coincidence_rates))
+        rates[singles:end] = coincidence_rates[: max(0, end - singles)]
+        return rates
+
     def get_countrate_data(self) -> np.ndarray:
-        n = max(len(self._countrate_channels), 1)
-        base = 1000 + 100 * np.arange(n)
-        return base + self._rng.normal(0, 30, size=n)
+        rates = self._live_rates()
+        if not self._running:
+            return rates
+        return np.clip(rates + self._rng.normal(0, 10, size=rates.size), 0, None)
 
     def get_total_counts(self) -> np.ndarray:
-        n = max(len(self._countrate_channels), 1)
-        if self._angle_context is not None:
-            # Angle-dependent, so BellScanController's simulated scan gets a
-            # believable (CHSH-violating) matrix instead of flat noise.
-            alice_deg, bob_deg = self._angle_context
-            delta = np.deg2rad(alice_deg - bob_deg)
-            value = 500.0 * (1 + 0.9 * np.cos(2 * delta)) + self._rng.normal(0, 5)
-            return np.full(n, max(value, 1.0))
-        return (1000 + 100 * np.arange(n)) * 100
+        n = len(self._countrate_channels)
+        if n == 0:
+            return np.zeros(0, dtype=float)
+        if self._total_counts.size != n:
+            self._total_counts = np.zeros(n, dtype=float)
+        if self._running:
+            # The worker polls every 100 ms, so this models one acquisition
+            # interval per poll and produces genuinely cumulative totals.
+            rates = self._live_rates()
+            self._total_counts += self._rng.poisson(np.clip(rates, 0, None) * 0.1)
+        return self._total_counts.copy()
 
     def set_angle_context(self, alice_deg: float, bob_deg: float) -> None:
         """Demo-only hook: BellScanController calls this (via getattr, not
