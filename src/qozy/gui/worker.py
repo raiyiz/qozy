@@ -25,6 +25,7 @@ class AcquisitionWorker(QObject):
     started = pyqtSignal()
     stopped = pyqtSignal()
     bell_cell_updated = pyqtSignal(int, int, float)
+    bell_cell_completed = pyqtSignal(int, int, float)
     bell_finished = pyqtSignal(object)
 
     def __init__(
