@@ -1,12 +1,4 @@
-"""Synthetic stand-in for TimeTaggerAdapter.
-
-Implements the same ``MeasurementAdapter`` shape so the GUI and controller
-can run (and be tested) with no hardware attached. The waveform shapes are
-adapted from the demo generator in ``old_spdc_to_port/spdc/main.py``
-(``generate_spdc_data``), just restructured to match the real adapter's
-return shapes (index row + per-channel value rows) instead of returning
-Alice/Bob arrays directly.
-"""
+"""Synthetic stand-in for TimeTaggerAdapter."""
 
 from __future__ import annotations
 
@@ -22,11 +14,10 @@ class SimulatorAdapter:
         self._connected = False
         self._running = False
         self._angle_context: tuple[float, float] | None = None
-
+        self._angle_total = 0.0
         self._counter_channels: list[int] = []
         self._counts_bin_width_ms = 100.0
         self._counts_bin_number = 50
-
         self._countrate_channels: list[int] = []
         self._total_counts = np.zeros(0, dtype=float)
 
@@ -59,9 +50,7 @@ class SimulatorAdapter:
         self._channel_delay_ns[channel] = delay
         self._channel_trigger_v[channel] = trigger_level_v
 
-    def setup_counters(
-        self, channel_list: list[int], counts_bin_width_ms: float, counts_time_frame_s: float
-    ) -> None:
+    def setup_counters(self, channel_list: list[int], counts_bin_width_ms: float, counts_time_frame_s: float) -> None:
         self._counter_channels = list(channel_list)
         self._counts_bin_width_ms = counts_bin_width_ms
         self._counts_bin_number = int(np.ceil(counts_time_frame_s * 1e3 / counts_bin_width_ms))
@@ -70,22 +59,14 @@ class SimulatorAdapter:
         self._countrate_channels = list(channels)
         self._total_counts = np.zeros(len(channels), dtype=float)
 
-    def setup_coincidences(
-        self, a_channels: list[int], b_channels: list[int], coin_time_window_ns: float
-    ) -> tuple[list[list[int]], list[int]]:
+    def setup_coincidences(self, a_channels: list[int], b_channels: list[int], coin_time_window_ns: float) -> tuple[list[list[int]], list[int]]:
         combos = [[a, b] for a in a_channels for b in b_channels]
         self._last_alice_channels = list(a_channels)
         self._last_bob_channels = list(b_channels)
         self._last_coincidence_window_ns = coin_time_window_ns
         return combos, list(range(len(combos)))
 
-    def setup_correlations(
-        self,
-        a_channels: list[int],
-        b_channels: list[int],
-        corr_bin_width_ns: float,
-        corr_time_frame_ns: float,
-    ) -> None:
+    def setup_correlations(self, a_channels: list[int], b_channels: list[int], corr_bin_width_ns: float, corr_time_frame_ns: float) -> None:
         self._corr_b_channels = list(b_channels)
         self._corr_bin_width_ns = corr_bin_width_ns
         self._corr_bin_number = int(np.ceil(corr_time_frame_ns / corr_bin_width_ns))
@@ -172,25 +153,19 @@ class SimulatorAdapter:
         return self._total_counts.copy()
 
     def set_angle_context(self, alice_deg: float, bob_deg: float) -> None:
-        """Demo-only hook: BellScanController calls this (via getattr, not
-        part of MeasurementAdapter) before each measurement so simulated
-        counts vary with the current stage angles, like a real scan would.
-        A real adapter doesn't need this — actual coincidence counts
-        naturally depend on the physical polarizer angles.
-        """
+        """Reset simulated cumulative coincidence counts for a new setting."""
         self._angle_context = (alice_deg, bob_deg)
+        self._angle_total = 0.0
 
     def read_current_settings(self) -> TimeTaggerSettings:
         channels = []
         for channel in range(1, 9):
-            channels.append(
-                TimeTaggerChannelSettings(
-                    channel=channel,
-                    enabled=True,
-                    delay_ns=self._channel_delay_ns.get(channel, 0.0),
-                    trigger_level_v=self._channel_trigger_v.get(channel, 0.1),
-                )
-            )
+            channels.append(TimeTaggerChannelSettings(
+                channel=channel,
+                enabled=True,
+                delay_ns=self._channel_delay_ns.get(channel, 0.0),
+                trigger_level_v=self._channel_trigger_v.get(channel, 0.1),
+            ))
         return TimeTaggerSettings(
             backend_mode="simulator",
             channel_settings=channels,
@@ -205,8 +180,7 @@ class SimulatorAdapter:
 
 
 class SimulatorStage:
-    """In-memory stand-in for ElliptecAdapter — same PositionerAdapter
-    shape, no serial port needed."""
+    """In-memory stand-in for ElliptecAdapter."""
 
     def __init__(self, seed: int | None = None) -> None:
         self._angle = 0.0
