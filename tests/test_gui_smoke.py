@@ -82,7 +82,7 @@ def test_counts_page_start_stop_cycle_updates_bell_summary(qapp) -> None:
     counts_page._start()
     _pump(qapp, 0.25)
     assert counts_page._worker is not None
-    assert counts_page.live_checkbox.isChecked()
+    assert counts_page.live_bell_checkbox.isChecked()
     counts_page._stop()
     _pump(qapp, 0.25)
     assert counts_page._worker is None
