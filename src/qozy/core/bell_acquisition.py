@@ -243,16 +243,54 @@ class SequentialBellAcquisition:
         return float(np.sum(values[offset : offset + count]))
 
 
-class SimultaneousBellAcquisition:
-    """Populate mapped Bell cells from simultaneously acquired channels."""
+@dataclass(frozen=True)
+class SequentialBellState:
+    """Current progress of a sequential Bell scan."""
 
-    def __init__(self, channel_map: BellChannelMap, coincidence_offset: int = 0) -> None:
-        if coincidence_offset < 0:
-            raise ValueError("coincidence_offset must be non-negative")
-        self.channel_map = channel_map
-        self.coincidence_offset = coincidence_offset
+    row: int
+    col: int
+    elapsed_s: float
+    integration_time_s: float
+    completed_cells: int
+    total_cells: int
+
+
+class SequentialBellAcquisition:
+    """Cycle the 16 polarization settings over an existing acquisition.
+
+    The acquisition itself remains owned by ``MeasurementController``. This
+    object only moves stages and interprets cumulative coincidence counts, so
+    every worker poll can update the currently active matrix cell.
+    """
+
+    def __init__(
+        self,
+        adapter: MeasurementAdapter,
+        alice_stage: PositionerAdapter,
+        bob_stage: PositionerAdapter,
+        alice_channels: list[int],
+        bob_channels: list[int],
+        settings_deg: Sequence[float] = BELL_ANGLES_DEG,
+        integration_time_s: float = 0.5,
+    ) -> None:
+        if len(settings_deg) != 4:
+            raise ValueError("a Bell acquisition requires four polarization settings")
+        if integration_time_s <= 0:
+            raise ValueError("integration_time_s must be positive")
+        self.adapter = adapter
+        self.alice_stage = alice_stage
+        self.bob_stage = bob_stage
+        self.alice_channels = alice_channels
+        self.bob_channels = bob_channels
+        self.settings_deg = tuple(float(angle) for angle in settings_deg)
+        self.integration_time_s = float(integration_time_s)
         self.matrix = BellMatrixAccumulator()
+        self.row = 0
+        self.col = 0
+        self._baseline = 0.0
+        self._started_at = 0.0
         self._done = False
+        self._set_angle_context = getattr(adapter, "set_angle_context", None)
 
     @property
     def done(self) -> bool:
@@ -271,7 +309,8 @@ class SimultaneousBellAcquisition:
         ]
         if required and values.size <= max(required):
             raise ValueError(
-                "Simultaneous Bell acquisition requires all configured coincidence channels"
+                "Sequential Bell acquisition requires cumulative coincidence totals "
+                "from the configured acquisition"
             )
         for cell, index in self.channel_map.coincidence_indices.items():
             self.matrix.update_cell(*cell, values[self.coincidence_offset + index])
