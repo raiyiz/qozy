@@ -98,7 +98,7 @@ class BellMatrixAccumulator:
         measured = result[self.filled]
         maximum = float(np.max(measured)) if measured.size else 0.0
         if maximum > 0.0:
-            result[self.filled] /= maximum
+            result /= maximum
         return result
 
     def e_values(self) -> np.ndarray:
@@ -262,7 +262,7 @@ class SequentialBellAcquisition:
         self.col = 0
         self._done = False
         self._move_to_current_cell()
-        self._baseline = self._coincidence_total(total_counts)
+        self._baseline = self._coincidence_total(self.adapter.get_total_counts())
         self._started_at = time.monotonic()
         return self._snapshot()
 
@@ -286,7 +286,7 @@ class SequentialBellAcquisition:
         else:
             self.col += 1
         self._move_to_current_cell()
-        self._baseline = self._coincidence_total(total_counts)
+        self._baseline = self._coincidence_total(self.adapter.get_total_counts())
         self._started_at = time.monotonic()
         return self._snapshot(completed_row, completed_col, completed=True)
 
