@@ -6,19 +6,26 @@ import threading
 
 from PyQt6.QtCore import QObject, QThread, pyqtSignal, pyqtSlot
 
-from qozy.core.bell_acquisition import BellAcquisition, BellUpdate
+from qozy.core.bell_acquisition import BellAcquisition
 from qozy.core.controller import MeasurementController
 from qozy.core.data_model import MeasurementState
 
 
 class AcquisitionWorker(QObject):
-    """Own the measurement lifecycle and optionally feed a Bell acquisition."""
+    """Own the measurement lifecycle and optionally a live Bell scan.
+
+    A Bell scan is layered onto this same acquisition loop rather than
+    creating a second adapter owner. That keeps the count graph and Bell
+    matrix fed by the exact same ``MeasurementState`` stream.
+    """
 
     data_ready = pyqtSignal(object)
     bell_updated = pyqtSignal(object)
     error = pyqtSignal(str)
     started = pyqtSignal()
     stopped = pyqtSignal()
+    bell_cell_updated = pyqtSignal(int, int, float)
+    bell_finished = pyqtSignal(object)
 
     def __init__(
         self,
@@ -44,6 +51,7 @@ class AcquisitionWorker(QObject):
             return
         self._started = True
         controller_started = False
+        bell_started = False
         try:
             self.controller.start()
             controller_started = True
