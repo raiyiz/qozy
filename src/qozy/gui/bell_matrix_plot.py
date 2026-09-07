@@ -1,28 +1,4 @@
-"""Matplotlib heatmap of the Bell-scan coincidence matrix, with E/S values
-annotated directly on the plot.
-
-A lighter, modern take on ``old_spdc_to_port/spdc/bellvalue.py``'s ``plot()``
-function, which colored a 4x4 slice of a full angle sweep the same way and
-printed E1-E4/S1-S4 next to it. This widget skips the full 4x16 visibility
-curve that function also drew — this app's ``BellScanController`` only ever
-takes the four discrete Bell-angle settings, not a continuous sweep — and
-keeps to the part that maps directly onto data this app actually has: the
-4x4 matrix itself.
-
-The existing ``QTableWidget`` next to this widget (see ``CountsPage``) still
-shows exact numeric values; this is for reading CHSH violation strength at
-a glance, not for precise numbers.
-
-Updated live, one cell at a time, as ``BellScanController.run()`` reports
-each completed setting from its own background ``QThread`` (see
-``gui/scan_worker.py``) — this widget itself never touches a thread; it's
-just handed already-computed values through a normal (automatically
-queued, cross-thread-safe) Qt signal/slot, same as the numeric table next
-to it. ``canvas.draw_idle()`` defers the actual repaint to Qt's own idle
-processing instead of forcing an immediate synchronous redraw, which is
-what keeps sixteen rapid per-cell updates during a scan from stuttering
-the GUI.
-"""
+"""Matplotlib heatmap of the live Bell coincidence matrix."""
 
 from __future__ import annotations
 
@@ -53,15 +29,12 @@ class BellMatrixPlot(QWidget):
         self.clear()
 
     def clear(self) -> None:
-        """Reset to a placeholder — shown before the first scan of a
-        session, and while a new scan is running so a stale matrix from a
-        previous run isn't mistaken for the current one."""
         self._ax.clear()
         self._ax.set_axis_off()
         self._ax.text(
             0.5,
             0.5,
-            "Run a Bell scan to see the matrix",
+            "Start acquisition to see the matrix",
             ha="center",
             va="center",
             fontsize=10,
@@ -76,54 +49,59 @@ class BellMatrixPlot(QWidget):
         filled: np.ndarray | None = None,
         e: np.ndarray | None = None,
         s: np.ndarray | None = None,
+        color_reference_total: float | None = None,
     ) -> None:
-        """Redraw with ``matrix``. ``filled`` marks which cells actually
-        have a measurement yet (defaults to "all of them", i.e. a
-        completed scan) — cells not yet filled are drawn in a neutral
-        color rather than as if they were a real zero-count reading, and
-        excluded from the color-scale normalization below.
+        """Redraw using total-count-normalized values for the heatmap.
 
-        ``e``/``s`` are optional: a scan in progress has neither yet, so
-        the title shows a "measured so far" count instead of CHSH values
-        until both are supplied on the final, completed-scan call.
+        ``matrix`` is the numeric display matrix and may be normalized.
+        ``color_reference_total`` is independent of that display choice, so
+        colors retain their physical meaning even when the table is shown
+        normalized. If omitted, the sum of measured matrix cells is used.
         """
+        values = np.asarray(matrix, dtype=float)
+        if values.shape != (4, 4):
+            raise ValueError(f"expected a 4x4 matrix, got {values.shape}")
         if filled is None:
-            filled = np.ones(matrix.shape, dtype=bool)
+            filled = np.ones(values.shape, dtype=bool)
+        else:
+            filled = np.asarray(filled, dtype=bool)
+        if filled.shape != values.shape:
+            raise ValueError(f"expected a 4x4 filled mask, got {filled.shape}")
 
         self._ax.clear()
         self._ax.set_axis_on()
 
         cmap = colormaps["coolwarm"].with_extremes(bad=_UNFILLED_COLOR)
-        display = np.ma.masked_array(matrix, mask=~filled)
+        if color_reference_total is None:
+            color_reference_total = float(np.sum(values[filled]))
+        total = max(float(color_reference_total), 0.0)
+        color_values = np.zeros_like(values, dtype=float)
+        if total > 0.0:
+            color_values[filled] = values[filled] / total
 
-        # The color scale reflects only what's actually been measured so
-        # far, not a range fixed up front — it recalibrates as each new
-        # cell comes in during a live scan, rather than (mis)representing
-        # unmeasured cells as if they were known low values.
-        measured = matrix[filled]
-        if measured.size:
-            vmin, vmax = float(measured.min()), float(measured.max())
-            if vmin == vmax:
-                vmin, vmax = vmin - 1.0, vmax + 1.0
-        else:
-            vmin, vmax = 0.0, 1.0
-
-        self._ax.imshow(display, cmap=cmap, aspect="auto", vmin=vmin, vmax=vmax)
-        self._ax.set_xticks(range(matrix.shape[1]))
-        self._ax.set_xticklabels(_BOB_ANGLE_LABELS[: matrix.shape[1]])
-        self._ax.set_yticks(range(matrix.shape[0]))
-        self._ax.set_yticklabels(POLARIZATION_LABELS[: matrix.shape[0]])
+        color_display = np.ma.masked_array(color_values, mask=~filled)
+        self._ax.imshow(color_display, cmap=cmap, aspect="auto", vmin=0.0, vmax=1.0)
+        self._ax.set_xticks(range(values.shape[1]))
+        self._ax.set_xticklabels(_BOB_ANGLE_LABELS[: values.shape[1]])
+        self._ax.set_yticks(range(values.shape[0]))
+        self._ax.set_yticklabels(POLARIZATION_LABELS[: values.shape[0]])
         self._ax.set_xlabel("Bob angle", fontsize=9)
 
-        mid = (vmin + vmax) / 2.0
-        for row in range(matrix.shape[0]):
-            for col in range(matrix.shape[1]):
+        for row in range(values.shape[0]):
+            for col in range(values.shape[1]):
                 if not filled[row, col]:
                     continue
-                value = matrix[row, col]
-                color = "white" if value > mid else "black"
+                value = values[row, col]
+                intensity = color_values[row, col]
+                text_color = "white" if intensity > 0.5 else "black"
                 self._ax.text(
-                    col, row, f"{value:.0f}", ha="center", va="center", fontsize=9, color=color
+                    col,
+                    row,
+                    f"{value:.2f}",
+                    ha="center",
+                    va="center",
+                    fontsize=9,
+                    color=text_color,
                 )
 
         if e is not None and s is not None:
@@ -131,7 +109,7 @@ class BellMatrixPlot(QWidget):
             s_text = "  ".join(f"S{i + 1}={v:.2f}" for i, v in enumerate(s))
             title = f"{e_text}\n{s_text}"
         else:
-            title = f"Scanning…  {int(np.count_nonzero(filled))}/{filled.size} settings measured"
+            title = f"Live matrix · {int(np.count_nonzero(filled))}/{filled.size} settings measured"
         self._ax.set_title(title, fontsize=9)
         self.canvas.draw_idle()
 
