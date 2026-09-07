@@ -102,8 +102,8 @@ def test_simultaneous_acquisition_updates_all_mapped_cells() -> None:
 
     acquisition.start(totals)
 
-    expected = np.arange(16, dtype=float).reshape(4, 4) + 2
-    np.testing.assert_array_equal(acquisition.matrix.matrix, expected)
+    expected = np.arange(16, dtype=float) + 2
+    np.testing.assert_array_equal(acquisition.matrix.matrix.reshape(-1), expected)
     assert acquisition.matrix.filled.all()
     assert not acquisition.done
 
@@ -168,11 +168,11 @@ def test_sequential_acquisition_starts_at_first_setting_and_updates_live(monkeyp
     assert alice.angles == [22.5]
     assert bob.angles == [22.5]
 
-    adapter.total_counts[2:] = 7
+    adapter.total_counts[2] = 7
     row, col, value, done = acquisition.update(adapter.total_counts)
 
     assert (row, col) == (0, 0)
-    assert value == 112.0
+    assert value == 7.0
     assert not done
     assert acquisition.matrix.filled[0, 0]
     assert acquisition.state.completed_cells == 0
