@@ -137,7 +137,7 @@ The simulator stages and simulator measurement adapter make this workflow
 runnable without hardware.
 
 Next to the numeric coincidence-matrix table, a small matplotlib **heatmap**
-shows the same matrix colored by count rate, with E1–E4/S1–S4 annotated
+shows the same matrix colored by count, with E1–E4/S1–S4 annotated
 directly on the plot — a quick visual read of CHSH violation strength
 alongside the table's exact numbers.
 
@@ -154,16 +154,20 @@ polarization optics and watching the result settle or drift in real time,
 rather than clicking "Run Bell scan" over and over. Two things change while
 this is on:
 
-- the matrix and heatmap show **count rate** (counts/second, dividing by
-  that cycle's fixed integration time) instead of raw accumulated counts,
-  so consecutive cycles stay visually comparable regardless of how long
-  each setting was integrated for — E/S themselves are unaffected either
-  way, since they're a ratio of counts and a uniform per-cell rescaling
-  like this changes nothing about the result
-- a small line graph tracks **max |S| per cycle**, with reference lines at
-  the classical bound (|S| ≤ 2) and the Tsirelson bound (|S| ≤ 2√2, the
-  most quantum mechanics itself allows), so a run of cycles shows a trend,
-  not just a single snapshot
+- the matrix and heatmap **accumulate** instead of resetting each cycle —
+  every new cycle's counts are added to a running total that only resets
+  when you start a fresh (non-continuing) scan, so the numbers keep
+  growing the way a longer-integrated measurement should, and E/S are
+  computed from that same growing total rather than a fresh, noisier,
+  independent reading each cycle
+- a small line graph tracks **max |S| per cycle**, computed from that same
+  running total, with reference lines at the classical bound (|S| ≤ 2) and
+  the Tsirelson bound (|S| ≤ 2√2, the most quantum mechanics itself
+  allows) — so a run of cycles shows the estimate settling/converging over
+  time, not sixteen independent snapshots
+
+Neither the matrix nor the heatmap ever flashes back to empty between
+cycles while looping — only a genuinely fresh start clears them.
 
 Unchecking the box lets whatever cycle is currently in flight finish
 naturally, then stops — it never cuts a cycle short partway through its 16

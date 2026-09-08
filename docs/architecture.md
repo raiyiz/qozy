@@ -393,18 +393,30 @@ cycle count and `_s_history`. `_on_scan_thread_finished` also corrects the
 status text in that same gap, since `_on_scan_finished` had already written
 a "starting next…" message on the assumption the loop would continue.
 
-**Normalization.** `_display_matrix()` divides the raw matrix by that
-cycle's `ScanConfig.integration_time_s` when the live checkbox is checked,
-so the heatmap/table show counts/second rather than raw accumulated counts
-— comparable cycle to cycle regardless of integration time.
-`calc_e_s`/`e_readiness` always operate on the raw `self._scan_matrix`,
-never this display value: a uniform per-cell rescaling like this changes
-nothing about E/S (they're ratios of counts — see
-`test_calc_e_s_is_invariant_to_overall_count_scale`), and computing from
-raw counts avoids introducing a second source of truth for the same
-numbers depending on display mode. Everything actually saved to disk (the
-completed `.txt`, the SVG) also stays on the raw values, not the display
-ones.
+**Accumulation, not per-cycle reset.** `self._live_matrix` and
+`self._live_filled_mask` only reset on a genuinely fresh start (`not
+self._live_scan_running`) — a loop continuation adds this cycle's values
+into them cell by cell (`_on_scan_cell`) instead of replacing them, so the
+displayed matrix keeps growing the way a longer-integrated measurement
+should, rather than resetting to a fresh, independent, noisier reading
+every cycle. `_display_matrix()` returns this accumulated matrix in live
+mode (and the ordinary per-cycle `self._scan_matrix` in single-shot mode,
+completely unchanged). `calc_e_s`/`e_readiness` are computed from whichever
+of those `_display_matrix()` returns — unlike the rate-based normalization
+this replaced (dividing by integration time, which is just a uniform
+per-cell rescaling that provably changes nothing about E/S — see
+`test_calc_e_s_is_invariant_to_overall_count_scale`), accumulation is a
+genuinely larger dataset each cycle, so there's no reason to compute E/S
+from anything other than what's actually displayed. The max|S| history
+graph tracks this same accumulated running estimate at each cycle
+checkpoint, so a run of cycles shows the estimate settling/converging
+rather than independent per-cycle noise. Everything actually saved to disk
+(the `.txt`, the SVG) matches whatever's currently displayed, live or not.
+
+Because nothing is ever reset to a blank placeholder between cycles (only
+a fresh start does that — see `_run_bell_scan`), the matrix/heatmap/E-S
+never flash empty and refill; they're only ever added to while a loop
+runs.
 
 **`BellHistoryPlot`** (`gui/bell_history_plot.py`) is a small matplotlib
 line plot of max|S| per completed cycle (`self._s_history`, capped at the
@@ -412,6 +424,24 @@ last 200 to bound memory/plot width for a long-running loop), with
 reference lines at the classical bound (`CLASSICAL_BOUND = 2.0`) and the
 Tsirelson bound (`TSIRELSON_BOUND = 2√2`), so a run shows a trend against
 those two reference points rather than a bare number.
+
+**Layout stability.** Every widget whose text/content changes every cycle
+had a real, observed layout-stability problem, fixed by making its size a
+fixed quantity instead of letting Qt/matplotlib recompute it from current
+content on each redraw: `BellMatrixPlot`/`BellHistoryPlot` use
+`figure.subplots_adjust(...)` (fixed margins, set once) instead of
+`tight_layout=True` (recomputed per draw from the current title/tick
+text) and `canvas.setFixedSize(...)` instead of `setMinimumHeight(...)`;
+`status_label` has a fixed height for 3 wrapped lines so a shorter/longer
+live-loop status message can't resize the whole Settings card;
+`bell_e_label`/`bell_s_label` have a fixed minimum width so placeholder
+dashes versus real numbers don't reflow the heatmap column beside them;
+`bell_table`'s columns have a fixed width (`QHeaderView.ResizeMode.Fixed`)
+so accumulated counts growing to more digits over a long run don't widen
+them. `CountsPage`'s content also now lives inside a `QScrollArea` rather
+than directly in the page's own layout, so a window too small for
+everything (taller now, with the history graph) scrolls instead of
+silently clipping.
 
 ### Saving a completed scan
 
@@ -457,7 +487,7 @@ they are not part of the four-theme cycle.
 
 | Area | Status |
 |---|---|
-| Counts | **Implemented** — live acquisition UI, VisPy plot, live coincidence rate/total, start/stop, Bell scan (driving HardwareManager's real stages), 4×4 matrix + heatmap, live-loop scanning with a normalized-rate display and a max-\|S\| history graph, E/S summary; Alice/Bob channel display is read-only, driven by Time Tagger Settings |
+| Counts | **Implemented** — live acquisition UI, VisPy plot, live coincidence rate/total, start/stop, Bell scan (driving HardwareManager's real stages), 4×4 matrix + heatmap, live-loop scanning with cross-cycle accumulation and a max-\|S\| history graph, E/S summary; Alice/Bob channel display is read-only, driven by Time Tagger Settings |
 | Settings | **Implemented** — export directory only |
 | Time Tagger Settings | **Implemented** — connection, 8-channel table, Alice/Bob assignment, timing, Apply/Load-from-device/Save-profile/Load-profile/Reset |
 | Polarization | **Implemented** — Alice/Bob stage configuration, motion controls, Bell-angle presets |
@@ -494,8 +524,12 @@ window, live acquisition start/stop, Bell scan (including that it uses
 disconnected, and freezes Settings/Time Tagger Settings/Polarization for
 its duration), the live-loop scan (multiple cycles running unattended,
 stopping cleanly — including the exact race-condition gap described in
-"Live-loop scanning" above — rate vs. raw count display, and the max-|S|
-history graph updating each cycle), saving and auto-saving a completed
+"Live-loop scanning" above — the displayed value strictly increasing cycle
+over cycle rather than resetting, never flashing back to the placeholder
+between cycles, and the max-|S| history graph updating each cycle), the
+layout-stability fixes (fixed canvas sizes across redraws, fixed table
+column width under a long accumulated value, fixed status-label height,
+the scroll-area wrapper), saving and auto-saving a completed
 scan to a temp export directory, the Time Tagger Settings page's
 connection/channel/profile controls, Polarization-page stage controls and
 Bell-angle presets, four-theme cycling, and config persistence across a
