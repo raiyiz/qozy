@@ -22,6 +22,17 @@ to it. ``canvas.draw_idle()`` defers the actual repaint to Qt's own idle
 processing instead of forcing an immediate synchronous redraw, which is
 what keeps sixteen rapid per-cell updates during a scan from stuttering
 the GUI.
+
+The canvas has a fixed pixel size and fixed subplot margins (set once,
+never recomputed per draw) rather than matplotlib's ``tight_layout``,
+which recalculates margins from the current tick/title text on every
+single redraw. During a live scan the title alternates between a short
+"Scanning… N/16" line and a two-line E/S block of varying digit widths,
+and ``tight_layout`` would shift the axes within the canvas — and, worse,
+change the canvas's own size hint — on every one of those redraws,
+which is what shows up as the whole page twitching several times a
+second. A fixed size and fixed margins mean only the pixels that actually
+changed are ever different between two redraws.
 """
 
 from __future__ import annotations
@@ -38,6 +49,7 @@ from qozy.core.bell_math import POLARIZATION_LABELS
 
 _BOB_ANGLE_LABELS = ("22.5°", "67.5°", "112.5°", "157.5°")
 _UNFILLED_COLOR = "#e4e7ee"
+_CANVAS_SIZE_PX = (420, 360)
 
 
 class BellMatrixPlot(QWidget):
@@ -45,17 +57,23 @@ class BellMatrixPlot(QWidget):
         super().__init__(parent)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        self.figure = Figure(figsize=(4.2, 3.6), tight_layout=True)
+        self.figure = Figure(figsize=(4.2, 3.6), dpi=100)
+        # Fixed margins, set once: room at the top for a two-line title
+        # (the E/S block) even when the current title is only one line
+        # (the "Scanning…" progress text) or none (the placeholder), so
+        # switching between them never changes where the axes sit.
+        self.figure.subplots_adjust(left=0.14, right=0.97, bottom=0.14, top=0.78)
         self.canvas = FigureCanvasQTAgg(self.figure)
-        self.canvas.setMinimumHeight(260)
+        self.canvas.setFixedSize(*_CANVAS_SIZE_PX)
         layout.addWidget(self.canvas)
         self._ax = self.figure.add_subplot(111)
         self.clear()
 
     def clear(self) -> None:
         """Reset to a placeholder — shown before the first scan of a
-        session, and while a new scan is running so a stale matrix from a
-        previous run isn't mistaken for the current one."""
+        session. Not called between cycles of a live/looping scan, so a
+        completed matrix keeps being shown (and refined in place) rather
+        than flashing to this placeholder and back every cycle."""
         self._ax.clear()
         self._ax.set_axis_off()
         self._ax.text(

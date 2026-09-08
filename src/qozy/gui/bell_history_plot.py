@@ -6,6 +6,12 @@ continuously (live)" is enabled on the Counts page and the scan keeps
 re-measuring all 16 settings back to back, e.g. while tuning polarization
 optics and watching whether |S| is climbing toward violation or drifting
 away from it.
+
+Fixed canvas size and fixed subplot margins, same reasoning as
+``BellMatrixPlot``: the y-axis limit and the title both change on every
+cycle (a growing "cycle N" count, a changing max|S| value), and letting
+``tight_layout`` recompute margins from that changing text on every redraw
+is what makes the page visibly twitch during a live-looping scan.
 """
 
 from __future__ import annotations
@@ -20,15 +26,18 @@ from PyQt6.QtWidgets import QVBoxLayout, QWidget
 CLASSICAL_BOUND = 2.0
 TSIRELSON_BOUND = 2.0 * np.sqrt(2.0)
 
+_CANVAS_SIZE_PX = (420, 200)
+
 
 class BellHistoryPlot(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        self.figure = Figure(figsize=(4.2, 2.0), tight_layout=True)
+        self.figure = Figure(figsize=(4.2, 2.0), dpi=100)
+        self.figure.subplots_adjust(left=0.13, right=0.97, bottom=0.22, top=0.82)
         self.canvas = FigureCanvasQTAgg(self.figure)
-        self.canvas.setMinimumHeight(150)
+        self.canvas.setFixedSize(*_CANVAS_SIZE_PX)
         layout.addWidget(self.canvas)
         self._ax = self.figure.add_subplot(111)
         self.clear()

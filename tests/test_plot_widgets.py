@@ -212,3 +212,24 @@ def test_history_plot_clear_resets_after_having_data(qapp) -> None:
     plot.clear()
     assert not plot._ax.lines
     assert plot._ax.get_title() == ""
+
+
+def test_bell_matrix_plot_canvas_size_is_fixed_across_updates(qapp) -> None:
+    plot = BellMatrixPlot()
+    size_before = (plot.canvas.width(), plot.canvas.height())
+    plot.update_matrix(np.arange(1, 17, dtype=float).reshape(4, 4))
+    plot.update_matrix(
+        np.arange(1, 17, dtype=float).reshape(4, 4), e=np.zeros(4), s=np.zeros(4)
+    )
+    plot.clear()
+    size_after = (plot.canvas.width(), plot.canvas.height())
+    assert size_before == size_after
+
+
+def test_history_plot_canvas_size_is_fixed_across_updates(qapp) -> None:
+    plot = BellHistoryPlot()
+    size_before = (plot.canvas.width(), plot.canvas.height())
+    plot.update_history([1.5])
+    plot.update_history([1.5, 1.9, 2.6, 2.1])
+    size_after = (plot.canvas.width(), plot.canvas.height())
+    assert size_before == size_after
