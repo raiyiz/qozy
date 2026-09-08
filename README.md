@@ -148,15 +148,37 @@ each cell arrives, rather than a range fixed up front), and each E value
 appears as soon as it's genuinely derivable from recorded data — no S
 value appears until all four are, since each S combines all of them.
 
+Checking **Loop continuously (live)** keeps re-running the full 16-setting
+scan back to back after each cycle finishes — useful while tuning
+polarization optics and watching the result settle or drift in real time,
+rather than clicking "Run Bell scan" over and over. Two things change while
+this is on:
+
+- the matrix and heatmap show **count rate** (counts/second, dividing by
+  that cycle's fixed integration time) instead of raw accumulated counts,
+  so consecutive cycles stay visually comparable regardless of how long
+  each setting was integrated for — E/S themselves are unaffected either
+  way, since they're a ratio of counts and a uniform per-cell rescaling
+  like this changes nothing about the result
+- a small line graph tracks **max |S| per cycle**, with reference lines at
+  the classical bound (|S| ≤ 2) and the Tsirelson bound (|S| ≤ 2√2, the
+  most quantum mechanics itself allows), so a run of cycles shows a trend,
+  not just a single snapshot
+
+Unchecking the box lets whatever cycle is currently in flight finish
+naturally, then stops — it never cuts a cycle short partway through its 16
+settings.
+
 Once a scan finishes, **Save scan** writes the 4×4 coincidence matrix to
 Settings' export directory as a tab-delimited `.txt` file, in a
 `year/month/day/NN.txt` folder structure (`NN` is the first free two-digit
 number that day), *and* saves the heatmap as `NN_quick_analysis.svg`
 alongside it — the same naming `old_spdc_to_port/spdc/bellvalue.py` used
 for its own SVG report. Checking **Auto-save after scan** saves both files
-automatically as soon as the scan completes, no click needed. The saved
-paths (or a save error, e.g. a full day folder) are reported in the status
-line.
+automatically as soon as the scan completes — including every single cycle
+if combined with the live-loop checkbox, so that combination is worth
+turning on deliberately rather than by habit. The saved paths (or a save
+error, e.g. a full day folder) are reported in the status line.
 
 ## Test
 
@@ -178,7 +200,9 @@ window close without an explicit Save/Apply never touches the profile
 file), simulator polarization stages and Bell-angle presets on the
 Polarization page, the Bell scan driving HardwareManager's real stages
 (including its connected-stage guard and cross-page freeze), the live
-coincidence-rate/total-counts readout, saving and auto-saving a completed
+coincidence-rate/total-counts readout, the live-loop Bell scan (multiple
+cycles running unattended, stopping cleanly when unchecked, rate display,
+and the max-|S| history graph), saving and auto-saving a completed
 scan (matrix + quick-analysis SVG), config persistence across a simulated
 restart, and the four-theme cycling behavior.
 

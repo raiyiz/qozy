@@ -136,6 +136,133 @@ def test_counts_page_bell_scan_updates_matrix_plot(qapp) -> None:
     assert counts_page.bell_plot._ax.get_title() != ""
 
 
+def test_counts_page_live_scan_loops_multiple_cycles_and_stops_when_unchecked(qapp) -> None:
+    window = MainWindow(qapp)
+    counts_page = _page(window, 3)
+
+    counts_page.live_scan_checkbox.setChecked(True)
+    counts_page._run_bell_scan()
+
+    deadline = time.time() + 5
+    while time.time() < deadline and counts_page._scan_cycle_count < 3:
+        qapp.processEvents()
+        time.sleep(0.01)
+    assert counts_page._scan_cycle_count >= 3, "loop should keep running cycles unattended"
+    assert counts_page._live_scan_running
+    assert not counts_page.scan_button.isEnabled()
+
+    stopped_at = counts_page._scan_cycle_count
+    counts_page.live_scan_checkbox.setChecked(False)
+
+    deadline = time.time() + 5
+    while time.time() < deadline:
+        qapp.processEvents()
+        if not counts_page._live_scan_running and counts_page._scan_thread is None:
+            break
+        time.sleep(0.01)
+
+    assert not counts_page._live_scan_running
+    assert counts_page._scan_thread is None
+    assert counts_page.scan_button.isEnabled()
+    assert counts_page.start_button.isEnabled()
+    # at most one more cycle (already in flight when unchecked) completes
+    assert stopped_at <= counts_page._scan_cycle_count <= stopped_at + 1
+    assert counts_page.status_label.text() == f"Live scan stopped after cycle {counts_page._scan_cycle_count}"
+
+
+def test_counts_page_fresh_scan_after_live_loop_resets_cycle_state(qapp) -> None:
+    """A brand-new "Run Bell scan" click must not be mistaken for a loop
+    continuation and skip resetting the cycle count/history -- this would
+    happen if _live_scan_running were ever left True after a loop
+    genuinely stopped."""
+    window = MainWindow(qapp)
+    counts_page = _page(window, 3)
+
+    counts_page.live_scan_checkbox.setChecked(True)
+    counts_page._run_bell_scan()
+    deadline = time.time() + 5
+    while time.time() < deadline and counts_page._scan_cycle_count < 2:
+        qapp.processEvents()
+        time.sleep(0.01)
+    counts_page.live_scan_checkbox.setChecked(False)
+    deadline = time.time() + 5
+    while time.time() < deadline:
+        qapp.processEvents()
+        if not counts_page._live_scan_running and counts_page._scan_thread is None:
+            break
+        time.sleep(0.01)
+    assert not counts_page._live_scan_running
+
+    counts_page._run_bell_scan()
+    for _ in range(50):
+        qapp.processEvents()
+        if counts_page.status_label.text() == "Scan complete":
+            break
+        time.sleep(0.05)
+
+    assert counts_page._scan_cycle_count == 1
+    assert len(counts_page._s_history) == 1
+
+
+def test_counts_page_live_scan_shows_rate_not_raw_counts(qapp) -> None:
+    window = MainWindow(qapp)
+    counts_page = _page(window, 3)
+
+    counts_page._run_bell_scan()
+    for _ in range(50):
+        qapp.processEvents()
+        # wait for the QThread to actually clear, not just the status text
+        # (_on_scan_finished sets it a tick before _on_scan_thread_finished
+        # clears _scan_thread) -- starting a second scan too early would
+        # silently no-op against _run_bell_scan's own reentrancy guard.
+        if counts_page._scan_thread is None and counts_page.status_label.text() == "Scan complete":
+            break
+        time.sleep(0.05)
+    raw_text = counts_page.bell_table.item(0, 0).text()
+    assert "/s" not in raw_text
+
+    counts_page.live_scan_checkbox.setChecked(True)
+    counts_page._run_bell_scan()
+    for _ in range(50):
+        qapp.processEvents()
+        if counts_page._scan_cycle_count >= 2:
+            break
+        time.sleep(0.05)
+    live_text = counts_page.bell_table.item(0, 0).text()
+    assert live_text.endswith("/s")
+
+    counts_page.live_scan_checkbox.setChecked(False)
+    for _ in range(50):
+        qapp.processEvents()
+        if not counts_page._live_scan_running and counts_page._scan_thread is None:
+            break
+        time.sleep(0.05)
+
+
+def test_counts_page_bell_history_plot_updates_after_each_cycle(qapp) -> None:
+    window = MainWindow(qapp)
+    counts_page = _page(window, 3)
+
+    counts_page.live_scan_checkbox.setChecked(True)
+    counts_page._run_bell_scan()
+    deadline = time.time() + 5
+    while time.time() < deadline and counts_page._scan_cycle_count < 3:
+        qapp.processEvents()
+        time.sleep(0.01)
+    counts_page.live_scan_checkbox.setChecked(False)
+    deadline = time.time() + 5
+    while time.time() < deadline:
+        qapp.processEvents()
+        if not counts_page._live_scan_running and counts_page._scan_thread is None:
+            break
+        time.sleep(0.01)
+
+    assert len(counts_page._s_history) >= 3
+    assert counts_page.bell_history_plot._ax.lines
+    title = counts_page.bell_history_plot._ax.get_title()
+    assert f"cycle {len(counts_page._s_history)}" in title
+
+
 def test_counts_page_bell_summary_updates_live_and_honestly(qapp) -> None:
     """E/S must be calculated as data comes in, not only once the scan
     finishes -- but each value should only appear once it's actually
@@ -300,9 +427,13 @@ def test_counts_page_bell_scan_freezes_hardware_pages(qapp) -> None:
     assert not timetagger_page.connect_button.isEnabled()
     assert not polarization_page._stage_widgets["alice"]["connect"].isEnabled()
     assert not polarization_page._stage_widgets["bob"]["connect"].isEnabled()
+    # unfreezing happens once this cycle's QThread has actually finished
+    # (_on_scan_thread_finished), a tick after the "Scan complete" status
+    # text is set (_on_scan_finished) -- wait for the actual unfreeze, not
+    # just the status text, so this isn't racy against that gap.
     for _ in range(50):
         qapp.processEvents()
-        if counts_page.status_label.text() == "Scan complete":
+        if timetagger_page.connect_button.isEnabled():
             break
         time.sleep(0.05)
     assert timetagger_page.connect_button.isEnabled()

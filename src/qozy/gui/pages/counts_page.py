@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
     QCheckBox,
     QFormLayout,
@@ -31,6 +31,7 @@ from qozy.core.data_model import (
 )
 from qozy.core.export import save_measurement
 from qozy.core.scan_controller import BellScanController
+from qozy.gui.bell_history_plot import BellHistoryPlot
 from qozy.gui.bell_matrix_plot import BellMatrixPlot
 from qozy.gui.components import Card
 from qozy.gui.plot_panel import PlotPanel
@@ -73,6 +74,10 @@ class CountsPage(QWidget):
         self._last_scan_s: np.ndarray | None = None
         self._scan_matrix = np.zeros((4, 4))
         self._scan_filled = np.zeros((4, 4), dtype=bool)
+        self._scan_integration_time_s = 1.0
+        self._live_scan_running = False
+        self._scan_cycle_count = 0
+        self._s_history: list[float] = []
 
         root = QVBoxLayout(self)
         root.setContentsMargins(32, 28, 32, 28)
@@ -226,6 +231,15 @@ class CountsPage(QWidget):
         self.scan_button.clicked.connect(self._run_bell_scan)
         summary_col.addWidget(self.scan_button)
 
+        self.live_scan_checkbox = QCheckBox("Loop continuously (live)")
+        self.live_scan_checkbox.setToolTip(
+            "Keep re-running the 16-setting scan back to back after each "
+            "cycle finishes, showing count rate (not raw counts) so the "
+            "matrix stays comparable cycle to cycle. Uncheck to let the "
+            "current cycle finish and stop looping."
+        )
+        summary_col.addWidget(self.live_scan_checkbox)
+
         self.bell_e_label = QLabel("E: —, —, —, —")
         self.bell_s_label = QLabel("S: —, —, —, —")
         self.bell_s_label.setObjectName("MetricValue")
@@ -240,6 +254,10 @@ class CountsPage(QWidget):
         self.save_scan_button.setEnabled(False)
         self.save_scan_button.clicked.connect(self._save_scan_matrix)
         summary_col.addWidget(self.save_scan_button)
+
+        self.bell_history_plot = BellHistoryPlot()
+        summary_col.addWidget(self.bell_history_plot)
+
         summary_col.addStretch()
         row.addLayout(summary_col, 1)
         return card
@@ -363,12 +381,24 @@ class CountsPage(QWidget):
             self.status_label.setText(
                 "Error: connect both polarization stages on the Polarization page before running a Bell scan"
             )
+            self._stop_live_scan()
             return
         try:
             self._prepare_controller_config()
         except (ValueError, TypeError) as exc:
             self.status_label.setText(f"Settings error: {exc}")
+            self._stop_live_scan()
             return
+
+        # A fresh start (as opposed to this being the next cycle of an
+        # already-running live loop) resets the cycle count and history
+        # graph; a loop continuation must not, or every cycle would look
+        # like the first one.
+        if not self._live_scan_running:
+            self._scan_cycle_count = 0
+            self._s_history = []
+            self.bell_history_plot.clear()
+        self._live_scan_running = True
 
         alice = [c.channel for c in self.controller.config.alice_channels]
         bob = [c.channel for c in self.controller.config.bob_channels]
@@ -379,9 +409,7 @@ class CountsPage(QWidget):
         self._scan_matrix = np.zeros((4, 4))
         self._scan_filled = np.zeros((4, 4), dtype=bool)
         self.bell_plot.clear()
-        self._render_bell_summary(
-            np.zeros(4), np.zeros(4), np.zeros(4, dtype=bool)
-        )
+        self._render_bell_summary(np.zeros(4), np.zeros(4), np.zeros(4, dtype=bool))
         scan = BellScanController(
             self.controller.adapter,
             alice_stage,
@@ -390,6 +418,7 @@ class CountsPage(QWidget):
             bob,
             coincidence_window_ns=self.controller.config.coincidence_window_ns,
         )
+        self._scan_integration_time_s = scan.config.integration_time_s
         self._scan_thread, self._scan_worker = make_scan_thread(scan)
         self._scan_worker.cell_done.connect(self._on_scan_cell)
         self._scan_worker.finished.connect(self._on_scan_finished)
@@ -401,12 +430,36 @@ class CountsPage(QWidget):
 
         self.scan_button.setEnabled(False)
         self.start_button.setEnabled(False)
-        self.save_scan_button.setEnabled(False)
-        self.status_label.setText("Running Bell scan…")
+        if self.live_scan_checkbox.isChecked():
+            self.status_label.setText(
+                f"Running Bell scan… (live, cycle {self._scan_cycle_count + 1})"
+            )
+        else:
+            self.save_scan_button.setEnabled(False)
+            self.status_label.setText("Running Bell scan…")
         self.acquisition_changed.emit(True)
 
+    def _display_matrix(self) -> np.ndarray:
+        """The matrix actually shown in the heatmap/table: raw counts by
+        default (matches what gets saved to disk), or count rate
+        (counts/second, dividing by this cycle's fixed integration time)
+        while looping live, so consecutive cycles stay visually
+        comparable regardless of how long each setting was integrated
+        for. E/S are always computed from the raw counts in
+        self._scan_matrix, never this — calc_e_s is a ratio of counts, so
+        a uniform per-cell rescaling like this changes nothing about the
+        result, only what's displayed."""
+        if self.live_scan_checkbox.isChecked() and self._scan_integration_time_s > 0:
+            return self._scan_matrix / self._scan_integration_time_s
+        return self._scan_matrix
+
+    def _matrix_cell_text(self, raw_value: float) -> str:
+        if self.live_scan_checkbox.isChecked() and self._scan_integration_time_s > 0:
+            return f"{raw_value / self._scan_integration_time_s:.1f}/s"
+        return f"{raw_value:.0f}"
+
     def _on_scan_cell(self, row: int, col: int, value: float) -> None:
-        self.bell_table.setItem(row, col, QTableWidgetItem(f"{value:.0f}"))
+        self.bell_table.setItem(row, col, QTableWidgetItem(self._matrix_cell_text(value)))
         self._scan_matrix[row, col] = value
         self._scan_filled[row, col] = True
         # Live per-cell update, no blocking: this handler already runs on
@@ -415,7 +468,7 @@ class CountsPage(QWidget):
         # never waits on this call -- and draw_idle() defers the actual
         # repaint to Qt's idle processing rather than forcing a synchronous
         # redraw for each of the 16 settings.
-        self.bell_plot.update_matrix(self._scan_matrix, filled=self._scan_filled)
+        self.bell_plot.update_matrix(self._display_matrix(), filled=self._scan_filled)
         # E/S are calculated live too, from whatever's been recorded so
         # far -- not only once the scan finishes. e_readiness() keeps this
         # honest: an E value only shows once every cell its formula reads
@@ -440,25 +493,67 @@ class CountsPage(QWidget):
         self._last_scan_e = e
         self._last_scan_s = s
         self._render_bell_summary(e, s, np.ones(4, dtype=bool))
-        self.bell_plot.update_matrix(matrix, e=e, s=s)
+        self.bell_plot.update_matrix(self._display_matrix(), e=e, s=s)
         self.save_scan_button.setEnabled(True)
-        self.scan_button.setEnabled(self._hardware_connected)
-        self.start_button.setEnabled(self._hardware_connected)
+
+        self._scan_cycle_count += 1
+        max_s = max((abs(v) for v in s), default=0.0)
+        self._s_history.append(max_s)
+        del self._s_history[:-200]  # bound memory/plot width for a long-running loop
+        self.bell_history_plot.update_history(self._s_history)
+
         if self.auto_save_checkbox.isChecked():
             self._save_scan_matrix(auto=True)
+
+        if self.live_scan_checkbox.isChecked():
+            # Stay "busy": the loop continues immediately (from
+            # _on_scan_thread_finished, once this cycle's QThread has
+            # actually stopped), so Settings/Time Tagger/Polarization stay
+            # frozen and the scan/start buttons stay disabled until the
+            # loop is truly stopped, not just between individual cycles.
+            self.status_label.setText(
+                f"Live — cycle {self._scan_cycle_count} complete (max |S| = {max_s:.2f}), "
+                "starting next…"
+            )
         else:
-            self.status_label.setText("Scan complete")
-        self.acquisition_changed.emit(False)
+            self._stop_live_scan()
+            if not self.auto_save_checkbox.isChecked():
+                self.status_label.setText("Scan complete")
 
     def _on_scan_error(self, message: str) -> None:
         self.status_label.setText(f"Scan error: {message}")
-        self.scan_button.setEnabled(self._hardware_connected)
-        self.start_button.setEnabled(self._hardware_connected)
-        self.acquisition_changed.emit(False)
+        self._stop_live_scan()
+
+    def _stop_live_scan(self) -> None:
+        self._live_scan_running = False
 
     def _on_scan_thread_finished(self) -> None:
         self._scan_thread = None
         self._scan_worker = None
+        if self._live_scan_running and self.live_scan_checkbox.isChecked():
+            # Only safe to start the next cycle now that this QThread has
+            # actually finished (not merely asked to via .quit()) --
+            # starting it any earlier (e.g. straight from _on_scan_finished)
+            # is a race: self._scan_thread might still be the old, not-yet-
+            # cleared thread object, which trips _run_bell_scan's own
+            # reentrancy guard and silently stalls the whole loop.
+            QTimer.singleShot(0, self._run_bell_scan)
+            return
+        # Covers both a normal stop and the case where the checkbox was
+        # unchecked in the gap between this cycle's _on_scan_finished
+        # (which already decided to continue) and the QThread actually
+        # finishing -- _live_scan_running must end up False either way, or
+        # the *next* "Run Bell scan" click would wrongly treat itself as a
+        # loop continuation and skip resetting the cycle count/history.
+        self._stop_live_scan()
+        if self.status_label.text().endswith("starting next…"):
+            # Caught in that exact gap: _on_scan_finished already wrote a
+            # "starting next…" message on the assumption the loop would
+            # continue, so it needs correcting now that it won't.
+            self.status_label.setText(f"Live scan stopped after cycle {self._scan_cycle_count}")
+        self.scan_button.setEnabled(self._hardware_connected)
+        self.start_button.setEnabled(self._hardware_connected)
+        self.acquisition_changed.emit(False)
 
     def _save_scan_matrix(self, auto: bool = False) -> None:
         if self._last_scan_matrix is None:

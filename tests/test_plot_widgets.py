@@ -6,6 +6,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from qozy.gui.bell_history_plot import CLASSICAL_BOUND, TSIRELSON_BOUND, BellHistoryPlot
 from qozy.gui.bell_matrix_plot import BellMatrixPlot
 from qozy.gui.plot_panel import PlotPanel
 
@@ -157,3 +158,57 @@ def test_update_matrix_progress_count_matches_filled_mask(
 
     if expected_count < 16:
         assert plot._ax.get_title() == f"Scanning…  {expected_count}/16 settings measured"
+
+
+# --- BellHistoryPlot ---------------------------------------------------
+
+
+def test_history_plot_starts_with_a_placeholder(qapp) -> None:
+    plot = BellHistoryPlot()
+    assert not plot._ax.lines
+    assert plot._ax.get_title() == ""
+
+
+def test_history_plot_update_with_empty_history_stays_a_placeholder(qapp) -> None:
+    plot = BellHistoryPlot()
+    plot.update_history([])
+    assert not plot._ax.lines
+
+
+def test_history_plot_draws_one_point_per_cycle(qapp) -> None:
+    plot = BellHistoryPlot()
+    plot.update_history([1.5, 1.8, 2.3])
+    x_data, y_data = plot._ax.lines[-1].get_data()  # last line added is the data, not a bound
+    np.testing.assert_array_equal(x_data, [1, 2, 3])
+    np.testing.assert_allclose(y_data, [1.5, 1.8, 2.3])
+
+
+def test_history_plot_title_reports_latest_cycle_and_value(qapp) -> None:
+    plot = BellHistoryPlot()
+    plot.update_history([1.5, 1.8, 2.3])
+    assert plot._ax.get_title() == "cycle 3: max |S| = 2.30"
+
+
+def test_history_plot_y_axis_always_shows_the_tsirelson_bound(qapp) -> None:
+    """Even a low/early S value shouldn't hide the theoretical maximum --
+    it's the reference point the graph exists to show progress toward."""
+    plot = BellHistoryPlot()
+    plot.update_history([0.1])
+    _bottom, top = plot._ax.get_ylim()
+    assert top > TSIRELSON_BOUND
+
+
+def test_history_plot_reference_lines_at_classical_and_tsirelson_bounds(qapp) -> None:
+    plot = BellHistoryPlot()
+    plot.update_history([2.5])
+    reference_y_values = {line.get_ydata()[0] for line in plot._ax.lines[:-1]}  # exclude data line
+    assert CLASSICAL_BOUND in reference_y_values
+    assert TSIRELSON_BOUND in reference_y_values
+
+
+def test_history_plot_clear_resets_after_having_data(qapp) -> None:
+    plot = BellHistoryPlot()
+    plot.update_history([1.0, 2.0])
+    plot.clear()
+    assert not plot._ax.lines
+    assert plot._ax.get_title() == ""
