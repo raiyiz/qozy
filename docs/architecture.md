@@ -425,6 +425,43 @@ reference lines at the classical bound (`CLASSICAL_BOUND = 2.0`) and the
 Tsirelson bound (`TSIRELSON_BOUND = 2√2`), so a run shows a trend against
 those two reference points rather than a bare number.
 
+**Threading and efficiency.** The scan itself runs entirely on
+`ScanWorker`'s own `QThread` (`BellScanController.run()`), never the GUI
+thread; live acquisition (`AcquisitionWorker`) is the same pattern on its
+own thread. The two are mutually exclusive by design — the Start and Run
+Bell scan buttons each disable the other, since both would otherwise
+configure and read the same physical `MeasurementAdapter` concurrently —
+not a threading limitation, a hardware-sharing one. `cell_done` crossing
+from the scan thread to `_on_scan_cell` on the GUI thread is a normal Qt
+signal/slot, automatically delivered as a queued connection since sender
+and receiver live in different threads, so the scan thread never blocks
+waiting for a GUI update to finish.
+
+What *is* GUI-thread work, and used to be worth worrying about: preparing
+each per-cell redraw. `BellMatrixPlot.update_matrix()`/
+`BellHistoryPlot.update_history()` originally called `ax.clear()` on every
+single call, which destroys and forces matplotlib to rebuild every artist
+(image, ticks, axis labels, up to sixteen text objects) from scratch —
+measured directly at **~13 ms per call for the matrix plot, ~8 ms for the
+history plot**, purely Python/matplotlib object-creation overhead, before
+any actual pixel rendering. At up to 16 calls a cycle that's real,
+synchronous GUI-thread work, and it showed up as a measured **~20 ms per
+cell / ~3 cycles per second** against the simulator (which has no real
+per-setting integration delay, so cycles run back to back as fast as the
+GUI can keep up — a real stress case, not just a benchmark artifact).
+Switched both widgets to build their artists once and mutate them in place
+afterward (`image.set_data()`, `text.set_text()`/`set_color()`, a
+persistent `Line2D.set_data()`) — steady-state cost dropped to **~0.2 ms
+per call for both**, and cycle throughput against the simulator went from
+~3 to **~12.6 cycles/second**. The underlying Agg rasterization
+(`canvas.draw()`) itself is unchanged at ~35 ms — that part isn't free and
+wasn't optimized further (would need explicit blitting, a meaningfully
+bigger change for a further win that's moot against any real Time Tagger's
+per-setting integration time, typically hundreds of milliseconds to
+seconds) — but `draw_idle()` already coalesces multiple rapid per-cell
+paint requests into far fewer actual repaints, so this cost is paid much
+less than once per cell in practice.
+
 **Layout stability.** Every widget whose text/content changes every cycle
 had a real, observed layout-stability problem, fixed by making its size a
 fixed quantity instead of letting Qt/matplotlib recompute it from current

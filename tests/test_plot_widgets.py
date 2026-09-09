@@ -233,3 +233,31 @@ def test_history_plot_canvas_size_is_fixed_across_updates(qapp) -> None:
     plot.update_history([1.5, 1.9, 2.6, 2.1])
     size_after = (plot.canvas.width(), plot.canvas.height())
     assert size_before == size_after
+
+
+def test_bell_matrix_plot_does_not_clear_axes_after_the_first_update(qapp) -> None:
+    """The whole point of the incremental-update optimization: ax.clear()
+    (which forces matplotlib to destroy and rebuild every artist) must
+    only happen once, not on every one of up to 16 per-cycle calls."""
+    plot = BellMatrixPlot()
+    matrix = np.arange(1, 17, dtype=float).reshape(4, 4)
+    plot.update_matrix(matrix)  # first call: builds the artists
+
+    calls = []
+    original_clear = plot._ax.clear
+    plot._ax.clear = lambda: (calls.append(1), original_clear())[1]
+    for _ in range(5):
+        plot.update_matrix(matrix)
+    assert calls == []
+
+
+def test_history_plot_does_not_clear_axes_after_the_first_update(qapp) -> None:
+    plot = BellHistoryPlot()
+    plot.update_history([1.0])  # first call: builds the artists
+
+    calls = []
+    original_clear = plot._ax.clear
+    plot._ax.clear = lambda: (calls.append(1), original_clear())[1]
+    for i in range(2, 7):
+        plot.update_history(list(range(1, i)))
+    assert calls == []

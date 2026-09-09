@@ -12,6 +12,12 @@ Fixed canvas size and fixed subplot margins, same reasoning as
 cycle (a growing "cycle N" count, a changing max|S| value), and letting
 ``tight_layout`` recompute margins from that changing text on every redraw
 is what makes the page visibly twitch during a live-looping scan.
+
+Also like ``BellMatrixPlot``, ``update_history()`` mutates the existing
+line/labels in place after the first call rather than calling ``ax.clear()``
+and rebuilding the whole plot (both reference lines, the data line, both
+axis labels) every cycle — ``ax.clear()`` is the expensive part of a
+redraw, not the actual pixel rasterization.
 """
 
 from __future__ import annotations
@@ -40,6 +46,7 @@ class BellHistoryPlot(QWidget):
         self.canvas.setFixedSize(*_CANVAS_SIZE_PX)
         layout.addWidget(self.canvas)
         self._ax = self.figure.add_subplot(111)
+        self._data_line = None
         self.clear()
 
     def clear(self) -> None:
@@ -55,6 +62,9 @@ class BellHistoryPlot(QWidget):
             color="#8892a6",
             transform=self._ax.transAxes,
         )
+        # Forces the next update_history() to rebuild everything once,
+        # rather than trying to mutate a line ax.clear() just destroyed.
+        self._data_line = None
         self.canvas.draw_idle()
 
     def update_history(self, max_s_values: list[float]) -> None:
@@ -63,17 +73,25 @@ class BellHistoryPlot(QWidget):
             self.clear()
             return
 
-        self._ax.clear()
-        self._ax.set_axis_on()
         cycles = np.arange(1, len(max_s_values) + 1)
         values = np.asarray(max_s_values, dtype=float)
 
-        self._ax.axhline(CLASSICAL_BOUND, color="#8892a6", linestyle="--", linewidth=1)
-        self._ax.axhline(TSIRELSON_BOUND, color="#8892a6", linestyle=":", linewidth=1)
-        self._ax.plot(cycles, values, color="#d1495b", marker="o", markersize=3, linewidth=1.5)
+        if self._data_line is None:
+            # First call since construction or clear(): nothing to mutate
+            # yet, so build the reference lines, data line, and axis
+            # labels once. Every subsequent call reuses these.
+            self._ax.clear()
+            self._ax.set_axis_on()
+            self._ax.axhline(CLASSICAL_BOUND, color="#8892a6", linestyle="--", linewidth=1)
+            self._ax.axhline(TSIRELSON_BOUND, color="#8892a6", linestyle=":", linewidth=1)
+            (self._data_line,) = self._ax.plot(
+                cycles, values, color="#d1495b", marker="o", markersize=3, linewidth=1.5
+            )
+            self._ax.set_xlabel("scan cycle", fontsize=9)
+            self._ax.set_ylabel("max |S|", fontsize=9)
+        else:
+            self._data_line.set_data(cycles, values)
 
-        self._ax.set_xlabel("scan cycle", fontsize=9)
-        self._ax.set_ylabel("max |S|", fontsize=9)
         y_top = max(TSIRELSON_BOUND, float(values.max())) + 0.2
         self._ax.set_ylim(0, y_top)
         # keep the x-axis on integer cycle numbers even for a handful of points

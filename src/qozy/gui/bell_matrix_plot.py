@@ -33,6 +33,21 @@ change the canvas's own size hint — on every one of those redraws,
 which is what shows up as the whole page twitching several times a
 second. A fixed size and fixed margins mean only the pixels that actually
 changed are ever different between two redraws.
+
+``update_matrix()`` also updates artists **in place** (``image.set_data()``,
+``text.set_text()``/``set_color()``/``set_visible()``) after the first
+call, instead of calling ``ax.clear()`` and rebuilding the whole plot
+(image, ticks, axis labels, sixteen text objects) from scratch every
+time. ``ax.clear()`` — not the actual pixel rasterization — turned out to
+be the dominant cost of a redraw: roughly 13 ms of pure Python/matplotlib
+object-creation overhead per call, measured directly, on top of whatever
+the Agg backend then needs for the real render. At 16 cells a cycle that
+adds up to noticeable, avoidable GUI-thread work during a live scan;
+avoiding ``ax.clear()`` cut it to isolated ``set_*()`` calls on
+already-existing artists, which is what the rest of this docstring assumed
+before that optimization was added — the *first* call after construction
+or ``clear()`` still builds everything once, since there's nothing to
+mutate yet.
 """
 
 from __future__ import annotations
@@ -67,6 +82,8 @@ class BellMatrixPlot(QWidget):
         self.canvas.setFixedSize(*_CANVAS_SIZE_PX)
         layout.addWidget(self.canvas)
         self._ax = self.figure.add_subplot(111)
+        self._image = None
+        self._cell_texts: list[list] = []
         self.clear()
 
     def clear(self) -> None:
@@ -86,6 +103,10 @@ class BellMatrixPlot(QWidget):
             color="#8892a6",
             transform=self._ax.transAxes,
         )
+        # Forces the next update_matrix() to rebuild everything once,
+        # rather than trying to mutate artists ax.clear() just destroyed.
+        self._image = None
+        self._cell_texts = []
         self.canvas.draw_idle()
 
     def update_matrix(
@@ -108,9 +129,6 @@ class BellMatrixPlot(QWidget):
         if filled is None:
             filled = np.ones(matrix.shape, dtype=bool)
 
-        self._ax.clear()
-        self._ax.set_axis_on()
-
         cmap = colormaps["coolwarm"].with_extremes(bad=_UNFILLED_COLOR)
         display = np.ma.masked_array(matrix, mask=~filled)
 
@@ -126,23 +144,42 @@ class BellMatrixPlot(QWidget):
         else:
             vmin, vmax = 0.0, 1.0
 
-        self._ax.imshow(display, cmap=cmap, aspect="auto", vmin=vmin, vmax=vmax)
-        self._ax.set_xticks(range(matrix.shape[1]))
-        self._ax.set_xticklabels(_BOB_ANGLE_LABELS[: matrix.shape[1]])
-        self._ax.set_yticks(range(matrix.shape[0]))
-        self._ax.set_yticklabels(POLARIZATION_LABELS[: matrix.shape[0]])
-        self._ax.set_xlabel("Bob angle", fontsize=9)
+        if self._image is None:
+            # First call since construction or clear(): nothing to mutate
+            # yet, so build the image/ticks/text artists once. Every
+            # subsequent call reuses these instead of destroying and
+            # recreating them (see the module docstring for why that
+            # matters for a live scan calling this up to 16 times a cycle).
+            self._ax.clear()
+            self._ax.set_axis_on()
+            self._image = self._ax.imshow(display, cmap=cmap, aspect="auto", vmin=vmin, vmax=vmax)
+            self._ax.set_xticks(range(matrix.shape[1]))
+            self._ax.set_xticklabels(_BOB_ANGLE_LABELS[: matrix.shape[1]])
+            self._ax.set_yticks(range(matrix.shape[0]))
+            self._ax.set_yticklabels(POLARIZATION_LABELS[: matrix.shape[0]])
+            self._ax.set_xlabel("Bob angle", fontsize=9)
+            self._cell_texts = [
+                [
+                    self._ax.text(col, row, "", ha="center", va="center", fontsize=9)
+                    for col in range(matrix.shape[1])
+                ]
+                for row in range(matrix.shape[0])
+            ]
+        else:
+            self._image.set_data(display)
+            self._image.set_clim(vmin, vmax)
 
         mid = (vmin + vmax) / 2.0
         for row in range(matrix.shape[0]):
             for col in range(matrix.shape[1]):
-                if not filled[row, col]:
-                    continue
-                value = matrix[row, col]
-                color = "white" if value > mid else "black"
-                self._ax.text(
-                    col, row, f"{value:.0f}", ha="center", va="center", fontsize=9, color=color
-                )
+                text = self._cell_texts[row][col]
+                if filled[row, col]:
+                    value = matrix[row, col]
+                    text.set_text(f"{value:.0f}")
+                    text.set_color("white" if value > mid else "black")
+                    text.set_visible(True)
+                else:
+                    text.set_visible(False)
 
         if e is not None and s is not None:
             e_text = "  ".join(f"E{i + 1}={v:.2f}" for i, v in enumerate(e))
