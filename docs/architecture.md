@@ -32,6 +32,7 @@ src/qozy/
     ├── scan_worker.py             # background Bell scan
     ├── plot_panel.py              # VisPy live plotting
     ├── bell_matrix_plot.py        # matplotlib heatmap of the Bell-scan matrix
+    ├── bell_history_plot.py       # matplotlib max|S|-per-cycle line plot (live-loop mode)
     └── pages/
         ├── settings_page.py            # export directory only
         ├── timetagger_settings_page.py # Time Tagger connection, channels, timing, profile
@@ -308,8 +309,7 @@ summary card. It draws the 4×4 matrix as a color-coded heatmap with
 E1–E4/S1–S4 annotated on the plot itself — a quick visual read of CHSH
 violation strength, complementing rather than replacing the table's exact
 values. It resets to a placeholder (`clear()`) at the start of every scan
-and at first launch, and is redrawn (`update_matrix()`) in
-`_on_scan_finished`. This is a lighter port of
+and at first launch. This is a lighter port of
 `old_spdc_to_port/spdc/bellvalue.py`'s `plot()` function, adapted to the
 4×4 matrix this app actually produces — the old function plotted a full
 4×16 angle-sweep visibility curve with the 4×4 Bell slice overlaid as a
@@ -318,6 +318,167 @@ Bell-angle settings, so there's no sweep curve to draw. (`bellvalue.py`'s
 other function, `bell_matrix()`, was itself an unfinished stub in the
 original — it references undefined variables and ends in
 `print("Coming Soon.")` — so there was nothing there to port.)
+
+Everything about a scan is calculated live, one cell at a time, not only
+once it finishes:
+
+- `CountsPage._on_scan_cell()` (fed by `ScanWorker.cell_done`, emitted from
+  `BellScanController.run()` on its own `QThread` and delivered to the GUI
+  thread through Qt's normal queued cross-thread signal delivery — the
+  scan itself never waits on any of this) updates a running partial
+  matrix + a boolean "filled" mask, then redraws `BellMatrixPlot` on every
+  one of the 16 settings. `update_matrix()`'s `filled` argument masks out
+  not-yet-measured cells (drawn in a neutral color, not as if they were a
+  real zero-count reading) and — the actual point — excludes them from the
+  vmin/vmax color-scale normalization, so the colormap reflects only what's
+  been measured so far and recalibrates as more cells arrive, rather than a
+  range fixed up front. The title shows an "N/16 settings measured"
+  progress line until `e`/`s` are supplied on the final call.
+- The E/S summary labels update the same way, via
+  `bell_math.e_readiness()`: it mirrors `calc_e_s`'s own 2×2-block
+  indexing (`_E_BLOCKS`) to report which of the four E values are actually
+  backed by real measurements yet, given the current filled mask. An E
+  value only appears once every cell its formula reads has a real
+  recorded count — not derived from a matrix still zero-padded for
+  unmeasured cells — and none of the four S values appear until all four
+  E values do, since each S combines all of them. Given the scan's actual
+  fill order (Alice steps outer, Bob inner — see "Bell scan" above), E1
+  becomes available after the 6th of 16 cells, E2 after the 8th, E3 after
+  the 14th, and E4 (and so S) only at the very end.
+- `CountsPage._render_bell_summary(e, s, e_ready)` is the single place
+  that turns an (E, S, readiness) triple into label text, shared between
+  the live per-cell path and the final `_on_scan_finished` call (which
+  passes an all-`True` readiness, since the worker's `matrix`/`e`/`s` at
+  that point are the authoritative completed-scan values, not
+  recomputed locally).
+
+### Live-loop scanning
+
+Checking **Loop continuously (live)** on the Counts page turns the
+single-shot Bell scan into a repeating one, re-running the full 16-setting
+scan back to back after each cycle finishes, so the matrix/heatmap/E/S/S-
+history keep reflecting whatever's currently being measured rather than a
+single one-off snapshot.
+
+**Sequencing — why the next cycle starts from `_on_scan_thread_finished`,
+not `_on_scan_finished`.** The natural-looking implementation — decide
+whether to loop and call `QTimer.singleShot(0, self._run_bell_scan)`
+directly inside `_on_scan_finished` — has a real race: `worker.finished` is
+connected to both `_on_scan_finished` and `self._scan_thread.quit()`, in
+that order, so `_on_scan_finished` runs *before* the `QThread` has actually
+stopped and `_on_scan_thread_finished` has cleared `self._scan_thread` back
+to `None`. A `QTimer.singleShot(0, ...)` scheduled from inside
+`_on_scan_finished` can fire before that cleanup completes, which trips
+`_run_bell_scan`'s own reentrancy guard (`if self._scan_thread is not
+None: return`) and silently stalls the entire loop after exactly one
+cycle — no error, no crash, just nothing happening again. Restarting only
+from `_on_scan_thread_finished` (which by definition only runs once the
+`QThread` has genuinely finished) avoids this entirely. This was caught by
+running the loop for real and watching it stop after cycle 1, not by
+static reasoning about the code — worth remembering if this area gets
+touched again.
+
+**State that must survive a "should we continue?" decision made in two
+different places.** `_on_scan_finished` decides whether *this* cycle should
+be followed by another (based on the checkbox at that moment) and updates
+the status text accordingly; `_on_scan_thread_finished` makes the same
+check again once the thread has actually stopped, because the checkbox can
+change in the gap between the two. Both paths that end up *not* continuing
+must call `_stop_live_scan()` (which only resets `_live_scan_running`) —
+missing this in `_on_scan_thread_finished`'s "stop" branch was a real bug:
+`_live_scan_running` stayed `True` forever after a loop that stopped in
+that exact gap, which then made the *next* "Run Bell scan" click
+wrongly think it was continuing a still-active loop and skip resetting the
+cycle count and `_s_history`. `_on_scan_thread_finished` also corrects the
+status text in that same gap, since `_on_scan_finished` had already written
+a "starting next…" message on the assumption the loop would continue.
+
+**Accumulation, not per-cycle reset.** `self._live_matrix` and
+`self._live_filled_mask` only reset on a genuinely fresh start (`not
+self._live_scan_running`) — a loop continuation adds this cycle's values
+into them cell by cell (`_on_scan_cell`) instead of replacing them, so the
+displayed matrix keeps growing the way a longer-integrated measurement
+should, rather than resetting to a fresh, independent, noisier reading
+every cycle. `_display_matrix()` returns this accumulated matrix in live
+mode (and the ordinary per-cycle `self._scan_matrix` in single-shot mode,
+completely unchanged). `calc_e_s`/`e_readiness` are computed from whichever
+of those `_display_matrix()` returns — unlike the rate-based normalization
+this replaced (dividing by integration time, which is just a uniform
+per-cell rescaling that provably changes nothing about E/S — see
+`test_calc_e_s_is_invariant_to_overall_count_scale`), accumulation is a
+genuinely larger dataset each cycle, so there's no reason to compute E/S
+from anything other than what's actually displayed. The max|S| history
+graph tracks this same accumulated running estimate at each cycle
+checkpoint, so a run of cycles shows the estimate settling/converging
+rather than independent per-cycle noise. Everything actually saved to disk
+(the `.txt`, the SVG) matches whatever's currently displayed, live or not.
+
+Because nothing is ever reset to a blank placeholder between cycles (only
+a fresh start does that — see `_run_bell_scan`), the matrix/heatmap/E-S
+never flash empty and refill; they're only ever added to while a loop
+runs.
+
+**`BellHistoryPlot`** (`gui/bell_history_plot.py`) is a small matplotlib
+line plot of max|S| per completed cycle (`self._s_history`, capped at the
+last 200 to bound memory/plot width for a long-running loop), with
+reference lines at the classical bound (`CLASSICAL_BOUND = 2.0`) and the
+Tsirelson bound (`TSIRELSON_BOUND = 2√2`), so a run shows a trend against
+those two reference points rather than a bare number.
+
+**Threading and efficiency.** The scan itself runs entirely on
+`ScanWorker`'s own `QThread` (`BellScanController.run()`), never the GUI
+thread; live acquisition (`AcquisitionWorker`) is the same pattern on its
+own thread. The two are mutually exclusive by design — the Start and Run
+Bell scan buttons each disable the other, since both would otherwise
+configure and read the same physical `MeasurementAdapter` concurrently —
+not a threading limitation, a hardware-sharing one. `cell_done` crossing
+from the scan thread to `_on_scan_cell` on the GUI thread is a normal Qt
+signal/slot, automatically delivered as a queued connection since sender
+and receiver live in different threads, so the scan thread never blocks
+waiting for a GUI update to finish.
+
+What *is* GUI-thread work, and used to be worth worrying about: preparing
+each per-cell redraw. `BellMatrixPlot.update_matrix()`/
+`BellHistoryPlot.update_history()` originally called `ax.clear()` on every
+single call, which destroys and forces matplotlib to rebuild every artist
+(image, ticks, axis labels, up to sixteen text objects) from scratch —
+measured directly at **~13 ms per call for the matrix plot, ~8 ms for the
+history plot**, purely Python/matplotlib object-creation overhead, before
+any actual pixel rendering. At up to 16 calls a cycle that's real,
+synchronous GUI-thread work, and it showed up as a measured **~20 ms per
+cell / ~3 cycles per second** against the simulator (which has no real
+per-setting integration delay, so cycles run back to back as fast as the
+GUI can keep up — a real stress case, not just a benchmark artifact).
+Switched both widgets to build their artists once and mutate them in place
+afterward (`image.set_data()`, `text.set_text()`/`set_color()`, a
+persistent `Line2D.set_data()`) — steady-state cost dropped to **~0.2 ms
+per call for both**, and cycle throughput against the simulator went from
+~3 to **~12.6 cycles/second**. The underlying Agg rasterization
+(`canvas.draw()`) itself is unchanged at ~35 ms — that part isn't free and
+wasn't optimized further (would need explicit blitting, a meaningfully
+bigger change for a further win that's moot against any real Time Tagger's
+per-setting integration time, typically hundreds of milliseconds to
+seconds) — but `draw_idle()` already coalesces multiple rapid per-cell
+paint requests into far fewer actual repaints, so this cost is paid much
+less than once per cell in practice.
+
+**Layout stability.** Every widget whose text/content changes every cycle
+had a real, observed layout-stability problem, fixed by making its size a
+fixed quantity instead of letting Qt/matplotlib recompute it from current
+content on each redraw: `BellMatrixPlot`/`BellHistoryPlot` use
+`figure.subplots_adjust(...)` (fixed margins, set once) instead of
+`tight_layout=True` (recomputed per draw from the current title/tick
+text) and `canvas.setFixedSize(...)` instead of `setMinimumHeight(...)`;
+`status_label` has a fixed height for 3 wrapped lines so a shorter/longer
+live-loop status message can't resize the whole Settings card;
+`bell_e_label`/`bell_s_label` have a fixed minimum width so placeholder
+dashes versus real numbers don't reflow the heatmap column beside them;
+`bell_table`'s columns have a fixed width (`QHeaderView.ResizeMode.Fixed`)
+so accumulated counts growing to more digits over a long run don't widen
+them. `CountsPage`'s content also now lives inside a `QScrollArea` rather
+than directly in the page's own layout, so a window too small for
+everything (taller now, with the history graph) scrolls instead of
+silently clipping.
 
 ### Saving a completed scan
 
@@ -363,7 +524,7 @@ they are not part of the four-theme cycle.
 
 | Area | Status |
 |---|---|
-| Counts | **Implemented** — live acquisition UI, VisPy plot, live coincidence rate/total, start/stop, Bell scan (driving HardwareManager's real stages), 4×4 matrix + heatmap, E/S summary; Alice/Bob channel display is read-only, driven by Time Tagger Settings |
+| Counts | **Implemented** — live acquisition UI, VisPy plot, live coincidence rate/total, start/stop, Bell scan (driving HardwareManager's real stages), 4×4 matrix + heatmap, live-loop scanning with cross-cycle accumulation and a max-\|S\| history graph, E/S summary; Alice/Bob channel display is read-only, driven by Time Tagger Settings |
 | Settings | **Implemented** — export directory only |
 | Time Tagger Settings | **Implemented** — connection, 8-channel table, Alice/Bob assignment, timing, Apply/Load-from-device/Save-profile/Load-profile/Reset |
 | Polarization | **Implemented** — Alice/Bob stage configuration, motion controls, Bell-angle presets |
@@ -398,16 +559,23 @@ settings_store code without a display, plus PyQt6 smoke tests for the main
 window, live acquisition start/stop, Bell scan (including that it uses
 `HardwareManager`'s real stages, refuses to start with a stage
 disconnected, and freezes Settings/Time Tagger Settings/Polarization for
-its duration), saving and auto-saving a completed scan to a temp export
-directory, the Time Tagger Settings page's connection/channel/profile
-controls, Polarization-page stage controls and Bell-angle presets,
-four-theme cycling, and config persistence across a simulated restart
-(`MainWindow` closed and rebuilt against temp paths for both stores). Time
-Tagger backend tests cover both the local/network adapter factory calls
-(with the vendor SDK mocked) and `HardwareManager`'s reconnection guard,
-which requires the current backend to be disconnected before `select()`
-can change it — the same rule already enforced for the Alice/Bob stage
-backends.
+its duration), the live-loop scan (multiple cycles running unattended,
+stopping cleanly — including the exact race-condition gap described in
+"Live-loop scanning" above — the displayed value strictly increasing cycle
+over cycle rather than resetting, never flashing back to the placeholder
+between cycles, and the max-|S| history graph updating each cycle), the
+layout-stability fixes (fixed canvas sizes across redraws, fixed table
+column width under a long accumulated value, fixed status-label height,
+the scroll-area wrapper), saving and auto-saving a completed
+scan to a temp export directory, the Time Tagger Settings page's
+connection/channel/profile controls, Polarization-page stage controls and
+Bell-angle presets, four-theme cycling, and config persistence across a
+simulated restart (`MainWindow` closed and rebuilt against temp paths for
+both stores). Time Tagger backend tests cover both the local/network
+adapter factory calls (with the vendor SDK mocked) and `HardwareManager`'s
+reconnection guard, which requires the current backend to be disconnected
+before `select()` can change it — the same rule already enforced for the
+Alice/Bob stage backends.
 
 `tests/conftest.py` has an autouse `isolated_persisted_files` fixture (see
 "Two persisted files, two different jobs" above) that points both

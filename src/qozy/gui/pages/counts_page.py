@@ -5,14 +5,17 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
     QCheckBox,
     QFormLayout,
+    QFrame,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QLineEdit,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
     QTableWidget,
     QTableWidgetItem,
@@ -21,7 +24,7 @@ from PyQt6.QtWidgets import (
 )
 
 from qozy.core.app_config import AppConfig
-from qozy.core.bell_math import POLARIZATION_LABELS
+from qozy.core.bell_math import POLARIZATION_LABELS, calc_e_s, e_readiness
 from qozy.core.controller import MeasurementController
 from qozy.core.data_model import (
     ChannelConfig,
@@ -31,6 +34,7 @@ from qozy.core.data_model import (
 )
 from qozy.core.export import save_measurement
 from qozy.core.scan_controller import BellScanController
+from qozy.gui.bell_history_plot import BellHistoryPlot
 from qozy.gui.bell_matrix_plot import BellMatrixPlot
 from qozy.gui.components import Card
 from qozy.gui.plot_panel import PlotPanel
@@ -71,8 +75,25 @@ class CountsPage(QWidget):
         self._last_scan_matrix: np.ndarray | None = None
         self._last_scan_e: np.ndarray | None = None
         self._last_scan_s: np.ndarray | None = None
+        self._scan_matrix = np.zeros((4, 4))
+        self._scan_filled = np.zeros((4, 4), dtype=bool)
+        self._live_matrix = np.zeros((4, 4))
+        self._live_filled_mask = np.zeros((4, 4), dtype=bool)
+        self._scan_integration_time_s = 1.0
+        self._live_scan_running = False
+        self._scan_cycle_count = 0
+        self._s_history: list[float] = []
 
-        root = QVBoxLayout(self)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        outer.addWidget(scroll)
+
+        content = QWidget()
+        scroll.setWidget(content)
+        root = QVBoxLayout(content)
         root.setContentsMargins(32, 28, 32, 28)
         root.setSpacing(18)
 
@@ -168,6 +189,15 @@ class CountsPage(QWidget):
         self.status_label = QLabel("Idle")
         self.status_label.setProperty("role", "muted")
         self.status_label.setWordWrap(True)
+        # Fixed height for up to 3 wrapped lines: the live-loop status
+        # text ("Live — cycle N complete (max |S| = X.XX), starting
+        # next…") changes length every cycle and, without this, would
+        # wrap onto a different number of lines depending on how many
+        # digits happened to be in N or the S value -- shrinking or
+        # growing this whole card's height, and with it the vertical
+        # position of everything below it, several times a second.
+        self.status_label.setFixedHeight(3 * self.status_label.fontMetrics().lineSpacing() + 4)
+        self.status_label.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
         form.addRow("", self.status_label)
 
         self.coincidence_rate_label = QLabel("Coincidence rate: —")
@@ -198,17 +228,28 @@ class CountsPage(QWidget):
         self.bell_table.setFixedHeight(300)
         self.bell_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.bell_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        # Fixed column widths: accumulated live-loop counts grow to more
+        # digits over time, and without this the column would keep
+        # widening to fit them, reflowing everything beside it.
+        self.bell_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
+        for col in range(4):
+            self.bell_table.setColumnWidth(col, 90)
 
         for r in range(4):
             for c in range(4):
                 self.bell_table.setItem(r, c, QTableWidgetItem("—"))
 
         table_col.addWidget(self.bell_table, 0)
-        # Keep title + table at the top instead of stretching vertically
-        table_col.addStretch(1)
 
         self.bell_plot = BellMatrixPlot()
         table_col.addWidget(self.bell_plot)
+
+        # Keep title + table + heatmap together at the top instead of the
+        # heatmap drifting away from the table it illustrates — the stretch
+        # belongs after everything in this column, not between two widgets
+        # meant to be read together.
+        table_col.addStretch(1)
+
         row.addLayout(table_col, 1)
 
         summary_col = QVBoxLayout()
@@ -219,9 +260,25 @@ class CountsPage(QWidget):
         self.scan_button.clicked.connect(self._run_bell_scan)
         summary_col.addWidget(self.scan_button)
 
-        self.bell_e_label = QLabel("E: —")
-        self.bell_s_label = QLabel("S: —")
+        self.live_scan_checkbox = QCheckBox("Loop continuously (live)")
+        self.live_scan_checkbox.setToolTip(
+            "Keep re-running the 16-setting scan back to back after each "
+            "cycle finishes, showing count rate (not raw counts) so the "
+            "matrix stays comparable cycle to cycle. Uncheck to let the "
+            "current cycle finish and stop looping."
+        )
+        summary_col.addWidget(self.live_scan_checkbox)
+
+        self.bell_e_label = QLabel("E: —, —, —, —")
+        self.bell_s_label = QLabel("S: —, —, —, —")
         self.bell_s_label.setObjectName("MetricValue")
+        # Fixed minimum width sized for the longest realistic text (four
+        # signed 2-decimal values plus the "(max |S| = X.XX)" suffix) so
+        # going from placeholder dashes to real numbers doesn't change
+        # this column's preferred width and shove the heatmap column
+        # beside it back and forth.
+        self.bell_e_label.setMinimumWidth(320)
+        self.bell_s_label.setMinimumWidth(320)
         summary_col.addWidget(self.bell_e_label)
         summary_col.addWidget(self.bell_s_label)
 
@@ -233,6 +290,10 @@ class CountsPage(QWidget):
         self.save_scan_button.setEnabled(False)
         self.save_scan_button.clicked.connect(self._save_scan_matrix)
         summary_col.addWidget(self.save_scan_button)
+
+        self.bell_history_plot = BellHistoryPlot()
+        summary_col.addWidget(self.bell_history_plot)
+
         summary_col.addStretch()
         row.addLayout(summary_col, 1)
         return card
@@ -356,20 +417,44 @@ class CountsPage(QWidget):
             self.status_label.setText(
                 "Error: connect both polarization stages on the Polarization page before running a Bell scan"
             )
+            self._stop_live_scan()
             return
         try:
             self._prepare_controller_config()
         except (ValueError, TypeError) as exc:
             self.status_label.setText(f"Settings error: {exc}")
+            self._stop_live_scan()
             return
+
+        # A fresh start (as opposed to this being the next cycle of an
+        # already-running live loop) resets the cycle count, history
+        # graph, and -- for live mode -- the running accumulated matrix.
+        # A loop continuation must not reset any of that, or every cycle
+        # would look like the first one, and the whole point of
+        # accumulating -- a stable, ever-growing total rather than a
+        # fresh independent (and noisier) reading each time -- would be
+        # lost. It also means the matrix/heatmap/labels are never reset
+        # to a blank placeholder between cycles: only a fresh start does
+        # that, so a live loop just keeps adding to what's already shown
+        # instead of flashing empty and refilling every cycle.
+        if not self._live_scan_running:
+            self._scan_cycle_count = 0
+            self._s_history = []
+            self.bell_history_plot.clear()
+            self._live_matrix = np.zeros((4, 4))
+            self._live_filled_mask = np.zeros((4, 4), dtype=bool)
+            for r in range(4):
+                for c in range(4):
+                    self.bell_table.setItem(r, c, QTableWidgetItem("—"))
+            self.bell_plot.clear()
+            self._render_bell_summary(np.zeros(4), np.zeros(4), np.zeros(4, dtype=bool))
+        self._live_scan_running = True
 
         alice = [c.channel for c in self.controller.config.alice_channels]
         bob = [c.channel for c in self.controller.config.bob_channels]
         alice_stage, bob_stage = self._bell_scan_stages()
-        for r in range(4):
-            for c in range(4):
-                self.bell_table.setItem(r, c, QTableWidgetItem("—"))
-        self.bell_plot.clear()
+        self._scan_matrix = np.zeros((4, 4))
+        self._scan_filled = np.zeros((4, 4), dtype=bool)
         scan = BellScanController(
             self.controller.adapter,
             alice_stage,
@@ -378,6 +463,7 @@ class CountsPage(QWidget):
             bob,
             coincidence_window_ns=self.controller.config.coincidence_window_ns,
         )
+        self._scan_integration_time_s = scan.config.integration_time_s
         self._scan_thread, self._scan_worker = make_scan_thread(scan)
         self._scan_worker.cell_done.connect(self._on_scan_cell)
         self._scan_worker.finished.connect(self._on_scan_finished)
@@ -389,41 +475,149 @@ class CountsPage(QWidget):
 
         self.scan_button.setEnabled(False)
         self.start_button.setEnabled(False)
-        self.save_scan_button.setEnabled(False)
-        self.status_label.setText("Running Bell scan…")
+        if self.live_scan_checkbox.isChecked():
+            self.status_label.setText(
+                f"Running Bell scan… (live, cycle {self._scan_cycle_count + 1})"
+            )
+        else:
+            self.save_scan_button.setEnabled(False)
+            self.status_label.setText("Running Bell scan…")
         self.acquisition_changed.emit(True)
 
+    def _display_matrix(self) -> np.ndarray:
+        """The matrix actually shown in the heatmap/table: this cycle's
+        raw counts in single-shot mode (matches what gets saved to disk),
+        or the running total accumulated across every cycle of the
+        current live loop while looping -- which keeps growing, cycle
+        after cycle, the way a longer-integrated measurement should,
+        rather than resetting to a fresh independent (and noisier)
+        reading every time. E/S are computed from whichever of these is
+        displayed: a raw accumulated count isn't just a rescaling of a
+        single cycle's numbers the way a rate would be, it's a genuinely
+        larger and more statistically meaningful dataset."""
+        if self.live_scan_checkbox.isChecked():
+            return self._live_matrix
+        return self._scan_matrix
+
+    def _display_filled(self) -> np.ndarray:
+        if self.live_scan_checkbox.isChecked():
+            return self._live_filled_mask
+        return self._scan_filled
+
     def _on_scan_cell(self, row: int, col: int, value: float) -> None:
-        self.bell_table.setItem(row, col, QTableWidgetItem(f"{value:.0f}"))
+        self._scan_matrix[row, col] = value
+        self._scan_filled[row, col] = True
+        if self.live_scan_checkbox.isChecked():
+            # Add to the running total rather than replacing it -- see
+            # _display_matrix's docstring for why, and _run_bell_scan's
+            # comment for why this is also what keeps a live loop from
+            # ever flashing back to a blank display between cycles.
+            self._live_matrix[row, col] += value
+            self._live_filled_mask[row, col] = True
+
+        display_matrix = self._display_matrix()
+        display_filled = self._display_filled()
+        self.bell_table.setItem(row, col, QTableWidgetItem(f"{display_matrix[row, col]:.0f}"))
+        # Live per-cell update, no blocking: this handler already runs on
+        # the GUI thread via Qt's normal (automatically queued) cross-thread
+        # signal delivery from ScanWorker's own QThread -- the scan itself
+        # never waits on this call -- and draw_idle() defers the actual
+        # repaint to Qt's idle processing rather than forcing a synchronous
+        # redraw for each of the 16 settings.
+        self.bell_plot.update_matrix(display_matrix, filled=display_filled)
+        # E/S are calculated live too, from whatever's been recorded so
+        # far -- not only once the scan finishes. e_readiness() keeps this
+        # honest: an E value only shows once every cell its formula reads
+        # has a real recorded count, not a zero standing in for "not
+        # measured yet", and S never shows until every E does, since each
+        # S combines all four.
+        e, s = calc_e_s(display_matrix)
+        self._render_bell_summary(e, s, e_readiness(display_filled))
+
+    def _render_bell_summary(self, e: np.ndarray, s: np.ndarray, e_ready: np.ndarray) -> None:
+        e_text = ", ".join(f"{v:.2f}" if ready else "—" for v, ready in zip(e, e_ready, strict=True))
+        self.bell_e_label.setText(f"E: {e_text}")
+        if e_ready.all():
+            s_text = ", ".join(f"{v:.2f}" for v in s)
+            max_s = max((abs(v) for v in s), default=0.0)
+            self.bell_s_label.setText(f"S: {s_text}  (max |S| = {max_s:.2f})")
+        else:
+            self.bell_s_label.setText("S: —, —, —, —")
 
     def _on_scan_finished(self, matrix: np.ndarray, e: np.ndarray, s: np.ndarray) -> None:
-        self._last_scan_matrix = matrix
-        self._last_scan_e = e
-        self._last_scan_s = s
-        e_text = ", ".join(f"{v:.2f}" for v in e)
-        s_text = ", ".join(f"{v:.2f}" for v in s)
-        max_s = max((abs(v) for v in s), default=0.0)
-        self.bell_e_label.setText(f"E: {e_text}")
-        self.bell_s_label.setText(f"S: {s_text}  (max |S| = {max_s:.2f})")
-        self.bell_plot.update_matrix(matrix, e, s)
+        # In live mode, _on_scan_cell has already folded every one of this
+        # cycle's 16 values into self._live_matrix as they arrived, so the
+        # authoritative "final" values for this point in the loop are the
+        # accumulated ones, not the worker's own per-cycle-only e/s
+        # (computed from just this one cycle's matrix, in isolation).
+        is_live = self.live_scan_checkbox.isChecked()
+        display_matrix = self._display_matrix()
+        display_e, display_s = (calc_e_s(display_matrix) if is_live else (e, s))
+        self._last_scan_matrix = display_matrix
+        self._last_scan_e = display_e
+        self._last_scan_s = display_s
+        self._render_bell_summary(display_e, display_s, np.ones(4, dtype=bool))
+        self.bell_plot.update_matrix(display_matrix, e=display_e, s=display_s)
         self.save_scan_button.setEnabled(True)
-        self.scan_button.setEnabled(self._hardware_connected)
-        self.start_button.setEnabled(self._hardware_connected)
+
+        self._scan_cycle_count += 1
+        max_s = max((abs(v) for v in display_s), default=0.0)
+        self._s_history.append(max_s)
+        del self._s_history[:-200]  # bound memory/plot width for a long-running loop
+        self.bell_history_plot.update_history(self._s_history)
+
         if self.auto_save_checkbox.isChecked():
             self._save_scan_matrix(auto=True)
+
+        if is_live:
+            # Stay "busy": the loop continues immediately (from
+            # _on_scan_thread_finished, once this cycle's QThread has
+            # actually stopped), so Settings/Time Tagger/Polarization stay
+            # frozen and the scan/start buttons stay disabled until the
+            # loop is truly stopped, not just between individual cycles.
+            self.status_label.setText(
+                f"Live — cycle {self._scan_cycle_count} complete (max |S| = {max_s:.2f}), "
+                "starting next…"
+            )
         else:
-            self.status_label.setText("Scan complete")
-        self.acquisition_changed.emit(False)
+            self._stop_live_scan()
+            if not self.auto_save_checkbox.isChecked():
+                self.status_label.setText("Scan complete")
 
     def _on_scan_error(self, message: str) -> None:
         self.status_label.setText(f"Scan error: {message}")
-        self.scan_button.setEnabled(self._hardware_connected)
-        self.start_button.setEnabled(self._hardware_connected)
-        self.acquisition_changed.emit(False)
+        self._stop_live_scan()
+
+    def _stop_live_scan(self) -> None:
+        self._live_scan_running = False
 
     def _on_scan_thread_finished(self) -> None:
         self._scan_thread = None
         self._scan_worker = None
+        if self._live_scan_running and self.live_scan_checkbox.isChecked():
+            # Only safe to start the next cycle now that this QThread has
+            # actually finished (not merely asked to via .quit()) --
+            # starting it any earlier (e.g. straight from _on_scan_finished)
+            # is a race: self._scan_thread might still be the old, not-yet-
+            # cleared thread object, which trips _run_bell_scan's own
+            # reentrancy guard and silently stalls the whole loop.
+            QTimer.singleShot(0, self._run_bell_scan)
+            return
+        # Covers both a normal stop and the case where the checkbox was
+        # unchecked in the gap between this cycle's _on_scan_finished
+        # (which already decided to continue) and the QThread actually
+        # finishing -- _live_scan_running must end up False either way, or
+        # the *next* "Run Bell scan" click would wrongly treat itself as a
+        # loop continuation and skip resetting the cycle count/history.
+        self._stop_live_scan()
+        if self.status_label.text().endswith("starting next…"):
+            # Caught in that exact gap: _on_scan_finished already wrote a
+            # "starting next…" message on the assumption the loop would
+            # continue, so it needs correcting now that it won't.
+            self.status_label.setText(f"Live scan stopped after cycle {self._scan_cycle_count}")
+        self.scan_button.setEnabled(self._hardware_connected)
+        self.start_button.setEnabled(self._hardware_connected)
+        self.acquisition_changed.emit(False)
 
     def _save_scan_matrix(self, auto: bool = False) -> None:
         if self._last_scan_matrix is None:

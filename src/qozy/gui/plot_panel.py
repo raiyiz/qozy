@@ -51,10 +51,30 @@ class PlotPanel(QWidget):
         corr: np.ndarray | None = None,
         y_range: tuple[float, float] | None = None,
     ) -> None:
+        if t.size == 0:
+            return
         zeros = np.zeros_like(t)
-        self.alice_line.set_data(np.column_stack((t, alice if alice is not None else zeros)))
-        self.bob_line.set_data(np.column_stack((t, bob if bob is not None else zeros)))
-        self.corr_line.set_data(np.column_stack((t, corr if corr is not None else zeros)))
+        alice_y = alice if alice is not None else zeros
+        bob_y = bob if bob is not None else zeros
+        corr_y = corr if corr is not None else zeros
+        self.alice_line.set_data(np.column_stack((t, alice_y)))
+        self.bob_line.set_data(np.column_stack((t, bob_y)))
+        self.corr_line.set_data(np.column_stack((t, corr_y)))
 
-        if y_range is not None:
-            self.view.camera.set_range(x=(float(t[0]), float(t[-1])), y=y_range)
+        # Re-fit the view to the current data window on every update, not
+        # just once at the start: t keeps advancing as counts come in, so a
+        # one-time initial range is quickly left behind, and the curves end
+        # up drawn off to the left of a mostly-empty view instead of
+        # centered in it.
+        t_min, t_max = float(t[0]), float(t[-1])
+        if t_min == t_max:
+            t_min, t_max = t_min - 0.5, t_max + 0.5
+        x_pad = (t_max - t_min) * 0.05
+        if y_range is None:
+            values = np.concatenate([alice_y, bob_y, corr_y])
+            y_min, y_max = float(values.min()), float(values.max())
+            if y_min == y_max:
+                y_min, y_max = y_min - 1.0, y_max + 1.0
+            y_pad = (y_max - y_min) * 0.1
+            y_range = (y_min - y_pad, y_max + y_pad)
+        self.view.camera.set_range(x=(t_min - x_pad, t_max + x_pad), y=y_range)
